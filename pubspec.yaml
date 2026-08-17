@@ -1,0 +1,28 @@
+name: game_engine
+description: >-
+  A Metal-native real-time renderer for Flutter on Apple hardware: hardware ray
+  tracing, MetalFX temporal upscaling and MetalFX frame interpolation, drawn
+  into a Flutter texture. Scene, camera and simulation stay in Dart; the native
+  side is the renderer.
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.3.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  vector_math: ^2.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      macos:
+        pluginClass: GameEnginePlugin
