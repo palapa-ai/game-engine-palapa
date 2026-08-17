@@ -12,6 +12,8 @@ class EngineStatus {
     required this.gpuMilliseconds,
     required this.deviceName,
     required this.interpolated,
+    required this.lightCount,
+    required this.bounces,
   });
 
   factory EngineStatus.fromJson(Map<String, dynamic> json) => EngineStatus(
@@ -28,6 +30,8 @@ class EngineStatus {
     gpuMilliseconds: (json['gpuMilliseconds'] as num? ?? 0).toDouble(),
     deviceName: json['deviceName'] as String? ?? '',
     interpolated: json['interpolated'] as bool? ?? false,
+    lightCount: json['lightCount'] as int? ?? 0,
+    bounces: json['bounces'] as int? ?? 1,
   );
 
   final int? textureId;
@@ -40,7 +44,13 @@ class EngineStatus {
   final double gpuMilliseconds;
   final String deviceName;
   final bool interpolated;
+  final int lightCount;
+  final int bounces;
 
   String get resolutionLabel =>
       '${renderWidth}x$renderHeight → ${outputWidth}x$outputHeight';
+
+  /// One camera ray, then per bounce a continuation plus a sun and a lamp
+  /// shadow ray — what the trace kernel casts for every pixel it shades.
+  int get raysPerFrame => renderWidth * renderHeight * (1 + 3 * (bounces + 1));
 }

@@ -4,6 +4,10 @@ enum MeshShape: String {
   case box
   case sphere
   case plane
+  case pyramid
+  case frustum
+  case cylinder
+  case cone
 }
 
 struct MeshDescription {
@@ -26,6 +30,14 @@ enum MaterialKind: String, CaseIterable {
   case water
   case glass
   case foliage
+  case mirror
+}
+
+struct SceneLight {
+  var position: SIMD3<Float>
+  var radius: Float
+  var color: SIMD3<Float>
+  var padding: Float = 0
 }
 
 struct InstanceMaterial {
@@ -36,6 +48,7 @@ struct InstanceMaterial {
   var tint: SIMD3<Float>
   var ior: Float
   var kind: UInt32
+  var animated: UInt32
 }
 
 struct InstanceDescription {
@@ -53,7 +66,8 @@ struct InstanceDescription {
       metallic: Float(json["metallic"] as? Double ?? 0),
       tint: SIMD3<Float>(json["tint"] as? [Double] ?? [1, 1, 1]),
       ior: Float(json["ior"] as? Double ?? 1.45),
-      kind: UInt32(MaterialKind.allCases.firstIndex(of: kind) ?? 0))
+      kind: UInt32(MaterialKind.allCases.firstIndex(of: kind) ?? 0),
+      animated: (json["animated"] as? Bool ?? false) ? 1 : 0)
   }
 }
 

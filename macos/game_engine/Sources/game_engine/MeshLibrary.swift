@@ -101,6 +101,10 @@ final class MeshLibrary {
     case .box: return box(size: mesh.size)
     case .plane: return plane(size: mesh.size)
     case .sphere: return sphere(radius: mesh.size.x, segments: mesh.segments)
+    case .pyramid: return taper(size: mesh.size, top: 0)
+    case .frustum: return taper(size: mesh.size, top: mesh.size.z)
+    case .cylinder: return round(size: mesh.size, top: mesh.size.x, segments: mesh.segments)
+    case .cone: return round(size: mesh.size, top: 0, segments: mesh.segments)
     }
   }
 
@@ -127,6 +131,88 @@ final class MeshLibrary {
       return [base, base + 1, base + 2, base, base + 2, base + 3]
     }
     return (vertices, indices)
+  }
+
+  /// Circular base at y=0 with radius size.x/2, tapering to `top` diameter at
+  /// y=size.y — a cone when `top` is zero.
+  private static func round(size: SIMD3<Float>, top: Float, segments: Int)
+    -> (vertices: [MeshVertex], indices: [UInt32])
+  {
+    let sides = max(segments, 6)
+    let radius = size.x * 0.5
+    let topRadius = max(top, 0) * 0.5
+    let height = size.y
+    let slope = normalize(SIMD2<Float>(height, radius - topRadius))
+
+    let ring = (0..<sides).flatMap { side -> [MeshVertex] in
+      let angleA = 2 * Float.pi * Float(side) / Float(sides)
+      let angleB = 2 * Float.pi * Float(side + 1) / Float(sides)
+      return [(angleA, false), (angleB, false), (angleB, true), (angleA, true)].map {
+        angle, isTop in
+        let direction = SIMD3<Float>(cos(angle), 0, sin(angle))
+        let position =
+          direction * (isTop ? topRadius : radius) + SIMD3<Float>(0, isTop ? height : 0, 0)
+        return MeshVertex(
+          position: position,
+          normal: normalize(direction * slope.x + SIMD3<Float>(0, slope.y, 0)))
+      }
+    }
+    let caps = [(0 as Float, SIMD3<Float>(0, -1, 0), radius), (height, [0, 1, 0], topRadius)]
+      .flatMap { y, normal, capRadius -> [MeshVertex] in
+        [MeshVertex(position: [0, y, 0], normal: normal)]
+          + (0...sides).map { side -> MeshVertex in
+            let angle = 2 * Float.pi * Float(side) / Float(sides)
+            return MeshVertex(
+              position: SIMD3<Float>(cos(angle) * capRadius, y, sin(angle) * capRadius),
+              normal: normal)
+          }
+      }
+    let sideIndices = (0..<sides).flatMap { side -> [UInt32] in
+      let offset = UInt32(side * 4)
+      return [offset, offset + 1, offset + 2, offset, offset + 2, offset + 3]
+    }
+    let capStride = UInt32(sides + 2)
+    let capBase = UInt32(sides * 4)
+    let capIndices = (0..<2).flatMap { cap -> [UInt32] in
+      let center = capBase + UInt32(cap) * capStride
+      return (0..<sides).flatMap { side -> [UInt32] in
+        let first = center + 1 + UInt32(side)
+        return cap == 0
+          ? [center, first + 1, first] : [center, first, first + 1]
+      }
+    }
+    return (ring + caps, sideIndices + capIndices)
+  }
+
+  /// Square base at y=0 tapering to `top` (0 gives a pyramid) at y=size.y.
+  private static func taper(size: SIMD3<Float>, top: Float)
+    -> (vertices: [MeshVertex], indices: [UInt32])
+  {
+    let half = size.x * 0.5
+    let topHalf = max(top, 0) * 0.5
+    let height = size.y
+    let corners: [SIMD2<Float>] = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+    let sides = (0..<4).flatMap { side -> [MeshVertex] in
+      let a = corners[side]
+      let b = corners[(side + 1) % 4]
+      let bottomA = SIMD3<Float>(a.x * half, 0, a.y * half)
+      let bottomB = SIMD3<Float>(b.x * half, 0, b.y * half)
+      let topA = SIMD3<Float>(a.x * topHalf, height, a.y * topHalf)
+      let topB = SIMD3<Float>(b.x * topHalf, height, b.y * topHalf)
+      let normal = normalize(cross(bottomB - bottomA, topA - bottomA))
+      return [bottomA, bottomB, topB, topA].map { MeshVertex(position: $0, normal: normal) }
+    }
+    let base = corners.map {
+      MeshVertex(position: SIMD3<Float>($0.x * half, 0, $0.y * half), normal: [0, -1, 0])
+    }
+    let cap = corners.map {
+      MeshVertex(position: SIMD3<Float>($0.x * topHalf, height, $0.y * topHalf), normal: [0, 1, 0])
+    }
+    let quads = (0..<6).flatMap { quad -> [UInt32] in
+      let offset = UInt32(quad * 4)
+      return [offset, offset + 1, offset + 2, offset, offset + 2, offset + 3]
+    }
+    return (sides + base + cap, quads)
   }
 
   private static func plane(size: SIMD3<Float>) -> (vertices: [MeshVertex], indices: [UInt32]) {

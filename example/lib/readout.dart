@@ -4,62 +4,87 @@ import 'package:game_engine/game_engine.dart';
 class Readout extends StatelessWidget {
   const Readout({
     required this.status,
-    required this.position,
     required this.fps,
-    required this.captured,
+    required this.settings,
+    required this.onScale,
+    required this.onUpscaler,
+    required this.onFrameGen,
+    required this.onBounces,
     super.key,
   });
 
   final EngineStatus? status;
-  final Vec3 position;
   final double fps;
-  final bool captured;
-
-  static const _style = TextStyle(
-    fontFamily: 'Menlo',
-    fontSize: 11,
-    height: 1.6,
-    color: Color(0xFF73C991),
-  );
+  final RenderSettings settings;
+  final VoidCallback onScale;
+  final VoidCallback onUpscaler;
+  final VoidCallback onFrameGen;
+  final VoidCallback onBounces;
 
   @override
   Widget build(BuildContext context) {
-    final lines = {
-      'GPU': status?.deviceName ?? '—',
-      'RES': status?.resolutionLabel ?? '—',
-      'FRAME': '${status?.gpuMilliseconds.toStringAsFixed(2) ?? '—'} ms',
-      'FPS': fps.toStringAsFixed(0),
-      'UPSCALE': status?.upscaling.name.toUpperCase() ?? '—',
-      'INTERP': (status?.frameInterpolation ?? false) ? 'METALFX' : 'OFF',
-      'POS':
-          '${position.x.toStringAsFixed(1)} '
-          '${position.y.toStringAsFixed(1)} '
-          '${position.z.toStringAsFixed(1)}',
-    };
+    final rays = status?.raysPerFrame ?? 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        ...lines.entries.map(
-          (line) => Text(
-            '${line.key.padRight(9)}${line.value}',
-            style: _style,
-            textDirection: TextDirection.ltr,
-          ),
+        _Line(label: 'FPS', value: fps.toStringAsFixed(0)),
+        _Line(
+          label: 'FRAME',
+          value: '${status?.gpuMilliseconds.toStringAsFixed(2) ?? '—'} ms',
         ),
-        const SizedBox(height: 12),
-        Text(
-          captured
-              ? 'MOUSE LOOK · WASD MOVE · SPACE/C RISE · SHIFT SPRINT · ESC RELEASE'
-              : 'CLICK TO CAPTURE MOUSE · WASD MOVE · SPACE/C RISE · SHIFT SPRINT',
-          style: const TextStyle(
-            fontFamily: 'Menlo',
-            fontSize: 10,
-            color: Color(0x8873C991),
-          ),
-          textDirection: TextDirection.ltr,
+        _Line(label: 'RAYS', value: '${_millions(rays)} M/frame'),
+        _Line(label: 'RAY/S', value: '${_millions((rays * fps).round())} M/s'),
+        _Line(label: 'LIGHTS', value: '${status?.lightCount ?? 0}'),
+        _Line(
+          label: 'BOUNCES',
+          value: '${settings.bounceRays}',
+          onTap: onBounces,
+        ),
+        _Line(
+          label: 'RES',
+          value: status?.resolutionLabel ?? '—',
+          onTap: onScale,
+        ),
+        _Line(
+          label: 'UPSCALE',
+          value: status?.upscaling.name.toUpperCase() ?? '—',
+          onTap: onUpscaler,
+        ),
+        _Line(
+          label: 'FRAMEGEN',
+          value: (status?.frameInterpolation ?? false) ? 'METALFX' : 'OFF',
+          onTap: onFrameGen,
         ),
       ],
     );
   }
+
+  String _millions(int value) => (value / 1000000).toStringAsFixed(1);
+}
+
+class _Line extends StatelessWidget {
+  const _Line({required this.label, required this.value, this.onTap});
+
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    behavior: HitTestBehavior.opaque,
+    child: Text(
+      '${label.padRight(10)}$value',
+      style: TextStyle(
+        fontFamily: 'Menlo',
+        fontSize: 11,
+        height: 1.7,
+        color: onTap == null
+            ? const Color(0xFF73C991)
+            : const Color(0xFF66F5F5),
+      ),
+      textDirection: TextDirection.ltr,
+    ),
+  );
 }

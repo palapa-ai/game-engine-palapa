@@ -9,6 +9,7 @@ enum GameShaders {
     constant uint kindWater = 1;
     constant uint kindGlass = 2;
     constant uint kindFoliage = 3;
+    constant uint kindMirror = 4;
 
     struct FrameUniforms {
       float4x4 viewProjection;
@@ -30,6 +31,7 @@ enum GameShaders {
       float time;
       uint frameIndex;
       uint bounceRays;
+      uint lightCount;
     };
 
     struct InstanceMaterial {
@@ -40,6 +42,14 @@ enum GameShaders {
       float3 tint;
       float ior;
       uint kind;
+      uint animated;
+    };
+
+    struct SceneLight {
+      float3 position;
+      float radius;
+      float3 color;
+      float padding;
     };
 
     struct Vertex {
@@ -58,9 +68,9 @@ enum GameShaders {
       device const uint *indices;
       device const MeshRange *ranges;
       device const InstanceMaterial *materials;
-      device const float4x4 *transforms;
       device const float4x4 *previousTransforms;
       device const float4x4 *inverseTransforms;
+      device const SceneLight *lights;
     };
 
     static inline float2 clipToPixel(float4 clip, float2 size) {
@@ -87,25 +97,28 @@ enum GameShaders {
       float2 cell = floor(position);
       float2 fraction = fract(position);
       fraction = fraction * fraction * (3.0 - 2.0 * fraction);
-      float corner00 = float(hash(uint(cell.x) * 374761393u + uint(cell.y) * 668265263u)) / 4294967296.0;
-      float corner10 = float(hash(uint(cell.x + 1) * 374761393u + uint(cell.y) * 668265263u)) / 4294967296.0;
-      float corner01 = float(hash(uint(cell.x) * 374761393u + uint(cell.y + 1) * 668265263u)) / 4294967296.0;
-      float corner11 = float(hash(uint(cell.x + 1) * 374761393u + uint(cell.y + 1) * 668265263u)) / 4294967296.0;
-      return mix(mix(corner00, corner10, fraction.x), mix(corner01, corner11, fraction.x), fraction.y);
+      float c00 = float(hash(uint(cell.x) * 374761393u + uint(cell.y) * 668265263u)) / 4294967296.0;
+      float c10 = float(hash(uint(cell.x + 1) * 374761393u + uint(cell.y) * 668265263u)) / 4294967296.0;
+      float c01 = float(hash(uint(cell.x) * 374761393u + uint(cell.y + 1) * 668265263u)) / 4294967296.0;
+      float c11 = float(hash(uint(cell.x + 1) * 374761393u + uint(cell.y + 1) * 668265263u)) / 4294967296.0;
+      return mix(mix(c00, c10, fraction.x), mix(c01, c11, fraction.x), fraction.y);
     }
 
-    // Three crossing gerstner-ish ripples; also drives the fake caustic gain.
+    static inline float3 hueRotate(float3 color, float angle) {
+      float3 k = float3(0.57735);
+      float cosine = cos(angle);
+      return color * cosine + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - cosine);
+    }
+
     static inline float3 waterNormal(float3 position, float time) {
       float2 p = position.xz;
-      float wave = 0.0;
       float2 gradient = float2(0.0);
-      float amplitude = 0.09;
-      float frequency = 0.22;
+      float amplitude = 0.06;
+      float frequency = 0.3;
       float2 directions[3] = { float2(1.0, 0.35), float2(-0.6, 1.0), float2(0.35, -0.9) };
       for (uint i = 0; i < 3; ++i) {
         float2 direction = normalize(directions[i]);
         float phase = dot(p, direction) * frequency + time * (0.9 + float(i) * 0.35);
-        wave += sin(phase) * amplitude;
         gradient += direction * cos(phase) * amplitude * frequency;
         amplitude *= 0.55;
         frequency *= 1.9;
@@ -174,6 +187,11 @@ enum GameShaders {
       return reflectance + (1.0 - reflectance) * pow(saturate(1.0 - cosine), 5.0);
     }
 
+    static inline float3 materialTint(InstanceMaterial material, float time) {
+      return material.animated == 0 ? material.tint
+                                    : saturate(hueRotate(material.tint, time * 0.6));
+    }
+
     struct SurfaceHit {
       float3 position;
       float3 normal;
@@ -212,12 +230,13 @@ enum GameShaders {
       return surface;
     }
 
-    // Shadow rays pass through water and glass, tinted, so the sun still reaches
-    // the sea floor and shorelines — this is where the caustic gain enters.
-    static inline float3 sunVisibility(Scene scene, float3 origin, float3 direction,
-                                       constant FrameUniforms &uniforms) {
+    // Transmissive surfaces tint shadow rays instead of blocking them, which is
+    // what puts caustics under the water and colour through the glass.
+    static inline float3 transmittance(Scene scene, float3 origin, float3 direction,
+                                       float maxDistance, constant FrameUniforms &uniforms) {
       float3 attenuation = float3(1.0);
       float3 position = origin;
+      float remaining = maxDistance;
       for (uint step = 0; step < 3u; ++step) {
         intersector<instancing, triangle_data> occlusion;
         occlusion.assume_geometry_type(geometry_type::triangle);
@@ -226,7 +245,7 @@ enum GameShaders {
         shadowRay.origin = position;
         shadowRay.direction = direction;
         shadowRay.min_distance = 1e-3;
-        shadowRay.max_distance = 1e5;
+        shadowRay.max_distance = remaining;
         auto hit = occlusion.intersect(shadowRay, scene.structure);
         if (hit.type == intersection_type::none) return attenuation;
 
@@ -234,7 +253,8 @@ enum GameShaders {
         if (material.kind != kindWater && material.kind != kindGlass) return float3(0.0);
 
         position = position + direction * (hit.distance + 1e-3);
-        attenuation *= material.tint;
+        remaining -= hit.distance + 1e-3;
+        attenuation *= materialTint(material, uniforms.time);
         if (material.kind == kindWater) {
           attenuation *= causticGain(position, uniforms.sunDirection, uniforms.time);
         }
@@ -242,54 +262,42 @@ enum GameShaders {
       return attenuation;
     }
 
-    static inline float3 shadeSurface(Scene scene, SurfaceHit surface, float3 normal,
-                                      float3 view, constant FrameUniforms &uniforms,
-                                      thread uint &state) {
-      InstanceMaterial material = surface.material;
-      float3 albedo = material.albedo * (1.0 - material.metallic);
-      float3 specularColor = mix(float3(0.04), material.albedo, material.metallic);
-      float roughness = clamp(material.roughness, 0.03, 1.0);
+    // Next event estimation: one random lamp per bounce, plus the sun.
+    static inline float3 directLight(Scene scene, float3 position, float3 normal, float3 view,
+                                     float3 albedo, float3 specularColor, float roughness,
+                                     constant FrameUniforms &uniforms, thread uint &state) {
+      float3 result = float3(0.0);
+      float3 origin = position + normal * 3e-3;
 
-      if (material.kind == kindFoliage) {
-        float noise = valueNoise(surface.position.xz * 1.7);
-        albedo *= 0.65 + 0.7 * noise;
-      }
-
-      float3 origin = surface.position + normal * 2e-3;
       float3 sunDirection = -uniforms.sunDirection;
-      float3 sample = coneSample(sunDirection, uniforms.sunAngularRadius, state);
-      float3 visibility = sunVisibility(scene, origin, sample, uniforms);
-      float3 sunRadiance = uniforms.sunColor * uniforms.sunIntensity * visibility;
-
-      float ndotl = saturate(dot(normal, sunDirection));
-      if (material.kind == kindFoliage) {
-        ndotl = saturate((dot(normal, sunDirection) + 0.45) / 1.45);
+      float sunDot = saturate(dot(normal, sunDirection));
+      if (sunDot > 0.0 && uniforms.sunIntensity > 0.0) {
+        float3 sample = coneSample(sunDirection, uniforms.sunAngularRadius, state);
+        float3 visibility = transmittance(scene, origin, sample, 1e5, uniforms);
+        float3 radiance = uniforms.sunColor * uniforms.sunIntensity * visibility;
+        result += radiance * (albedo * sunDot
+                            + specularColor * ggx(normal, view, sunDirection, roughness));
       }
 
-      float3 ambient = float3(0.0);
-      for (uint i = 0; i < uniforms.bounceRays; ++i) {
-        float3 bounceDirection = cosineHemisphere(normal, state);
-        intersector<instancing, triangle_data> bounce;
-        bounce.assume_geometry_type(geometry_type::triangle);
-        bounce.force_opacity(forced_opacity::opaque);
-        ray bounceRay;
-        bounceRay.origin = origin;
-        bounceRay.direction = bounceDirection;
-        bounceRay.min_distance = 1e-3;
-        bounceRay.max_distance = 1e5;
-        auto bounceHit = bounce.intersect(bounceRay, scene.structure);
-        if (bounceHit.type == intersection_type::none) {
-          ambient += sampleSky(bounceDirection, uniforms);
-        } else {
-          InstanceMaterial bounced = scene.materials[bounceHit.instance_id];
-          ambient += bounced.emissive * 0.3 + bounced.albedo * 0.05;
-        }
-      }
-      ambient /= float(max(uniforms.bounceRays, 1u));
+      if (uniforms.lightCount == 0u) return result;
+      uint index = min(uint(randomFloat(state) * float(uniforms.lightCount)),
+                       uniforms.lightCount - 1u);
+      SceneLight light = scene.lights[index];
+      float3 offset = normalize(float3(randomFloat(state) * 2.0 - 1.0,
+                                       randomFloat(state) * 2.0 - 1.0,
+                                       randomFloat(state) * 2.0 - 1.0));
+      float3 point = light.position + offset * light.radius;
+      float3 toLight = point - origin;
+      float distance = length(toLight);
+      float3 direction = toLight / max(distance, 1e-4);
+      float lambert = saturate(dot(normal, direction));
+      if (lambert <= 0.0) return result;
 
-      float3 diffuse = albedo * (sunRadiance * ndotl + ambient);
-      float3 specular = specularColor * sunRadiance * ggx(normal, view, sunDirection, roughness);
-      return diffuse + specular + material.emissive;
+      float3 visibility = transmittance(scene, origin, direction, distance - 1e-2, uniforms);
+      float falloff = 1.0 / (1.0 + distance * distance * 0.06);
+      float3 radiance = light.color * visibility * falloff * float(uniforms.lightCount);
+      return result + radiance * (albedo * lambert
+                                + specularColor * ggx(normal, view, direction, roughness));
     }
 
     kernel void traceScene(
@@ -306,9 +314,9 @@ enum GameShaders {
         device const uint *indices [[buffer(3)]],
         device const MeshRange *ranges [[buffer(4)]],
         device const InstanceMaterial *materials [[buffer(5)]],
-        device const float4x4 *transforms [[buffer(6)]],
         device const float4x4 *previousTransforms [[buffer(7)]],
         device const float4x4 *inverseTransforms [[buffer(8)]],
+        device const SceneLight *lights [[buffer(9)]],
         uint2 pixel [[thread_position_in_grid]]) {
       if (pixel.x >= uint(uniforms.renderSize.x) || pixel.y >= uint(uniforms.renderSize.y)) {
         return;
@@ -320,9 +328,9 @@ enum GameShaders {
       scene.indices = indices;
       scene.ranges = ranges;
       scene.materials = materials;
-      scene.transforms = transforms;
       scene.previousTransforms = previousTransforms;
       scene.inverseTransforms = inverseTransforms;
+      scene.lights = lights;
 
       float2 uv = (float2(pixel) + 0.5 + uniforms.jitter) / uniforms.renderSize;
       float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -333,10 +341,10 @@ enum GameShaders {
       uint state = hash(pixel.x * 1973u + pixel.y * 9277u + uniforms.frameIndex * 26699u);
       float3 radiance = float3(0.0);
       float3 throughput = float3(1.0);
-      float primaryDistance = 0.0;
+      float primaryDistance = 1e5;
       bool wroteSurface = false;
 
-      for (uint depth = 0; depth < 4u; ++depth) {
+      for (uint depth = 0; depth < 5u; ++depth) {
         intersector<instancing, triangle_data> tracer;
         tracer.assume_geometry_type(geometry_type::triangle);
         tracer.force_opacity(forced_opacity::opaque);
@@ -356,7 +364,6 @@ enum GameShaders {
             roughnessTexture.write(float4(1.0), pixel);
             motionTexture.write(float4(0.0), pixel);
             depthTexture.write(float4(1.0), pixel);
-            wroteSurface = true;
           }
           break;
         }
@@ -364,28 +371,35 @@ enum GameShaders {
         SurfaceHit surface = resolveHit(hit, origin, direction, uniforms, scene);
         InstanceMaterial material = surface.material;
         float3 normal = surface.normal;
-        if (material.kind == kindWater) {
-          normal = waterNormal(surface.position, uniforms.time);
-        }
+        if (material.kind == kindWater) normal = waterNormal(surface.position, uniforms.time);
         bool inside = dot(normal, direction) > 0.0;
         if (inside) normal = -normal;
         float3 view = -direction;
+        float roughness = clamp(material.roughness, 0.02, 1.0);
+        float3 albedo = material.albedo * (1.0 - material.metallic);
+        float3 specularColor = mix(float3(0.04), material.albedo, material.metallic);
 
         if (!wroteSurface) {
           primaryDistance = hit.distance;
-          float3 gbufferAlbedo = material.kind == kindOpaque || material.kind == kindFoliage
-                               ? material.albedo * (1.0 - material.metallic)
-                               : float3(0.0);
-          albedoTexture.write(float4(gbufferAlbedo, 1.0), pixel);
-          specularTexture.write(float4(mix(float3(0.04), material.albedo, material.metallic), 1.0),
-                                pixel);
+          bool diffuseSurface = material.kind == kindOpaque || material.kind == kindFoliage;
+          albedoTexture.write(float4(diffuseSurface ? albedo : float3(0.0), 1.0), pixel);
+          specularTexture.write(float4(specularColor, 1.0), pixel);
           normalTexture.write(float4(normal, 0.0), pixel);
-          roughnessTexture.write(float4(clamp(material.roughness, 0.03, 1.0)), pixel);
+          roughnessTexture.write(float4(diffuseSurface ? roughness : 0.05), pixel);
           motionTexture.write(
               float4(clipToPixel(surface.previousClip, uniforms.renderSize)
                    - clipToPixel(surface.clip, uniforms.renderSize), 0.0, 0.0), pixel);
           depthTexture.write(float4(saturate(surface.clip.z / max(surface.clip.w, 1e-6))), pixel);
           wroteSurface = true;
+        }
+
+        radiance += throughput * material.emissive;
+
+        if (material.kind == kindMirror) {
+          throughput *= materialTint(material, uniforms.time);
+          direction = reflect(direction, normal);
+          origin = surface.position + normal * 3e-3;
+          continue;
         }
 
         if (material.kind == kindWater || material.kind == kindGlass) {
@@ -394,21 +408,38 @@ enum GameShaders {
           float eta = inside ? material.ior : 1.0 / material.ior;
           float3 refracted = refract(direction, normal, eta);
           bool totalInternal = length_squared(refracted) < 1e-6;
-
           if (randomFloat(state) < fresnel || totalInternal) {
             direction = reflect(direction, normal);
-            origin = surface.position + normal * 2e-3;
+            origin = surface.position + normal * 3e-3;
           } else {
-            throughput *= material.tint;
+            throughput *= materialTint(material, uniforms.time);
             direction = normalize(refracted);
-            origin = surface.position - normal * 2e-3;
+            origin = surface.position - normal * 3e-3;
           }
-          radiance += throughput * material.emissive;
           continue;
         }
 
-        radiance += throughput * shadeSurface(scene, surface, normal, view, uniforms, state);
-        break;
+        if (material.kind == kindFoliage) {
+          float noise = valueNoise(surface.position.xz * 1.7);
+          albedo *= 0.65 + 0.7 * noise;
+        }
+
+        radiance += throughput * directLight(scene, surface.position, normal, view, albedo,
+                                             specularColor, roughness, uniforms, state);
+
+        float fresnel = schlick(saturate(dot(view, normal)), material.metallic > 0.5 ? 0.6 : 0.04);
+        if (roughness < 0.3 && randomFloat(state) < fresnel) {
+          throughput *= specularColor;
+          direction = normalize(reflect(direction, normal)
+                              + cosineHemisphere(normal, state) * roughness * 0.6);
+          origin = surface.position + normal * 3e-3;
+          continue;
+        }
+
+        if (depth + 1 >= uniforms.bounceRays + 1u) break;
+        throughput *= albedo;
+        direction = cosineHemisphere(normal, state);
+        origin = surface.position + normal * 3e-3;
       }
 
       float fog = exp(-primaryDistance * uniforms.fogDensity);

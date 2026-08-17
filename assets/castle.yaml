@@ -1,0 +1,172 @@
+name: Castle Grounds
+
+# An original geometric homage to the castle that opens Super Mario 64 — no
+# ripped assets, every shape built from the engine's primitives. Positions are
+# in metres, rotations in degrees; `mirror` stamps a placement across an axis.
+
+camera:
+  position: [0, 9, 150]
+  yaw: -90
+  pitch: -4
+  fieldOfView: 62
+
+sun:
+  direction: [-0.38, -0.62, -0.32]
+  color: [1.0, 0.94, 0.82]
+  intensity: 5.2
+  angularRadius: 0.035
+
+sky:
+  zenith: [0.10, 0.30, 0.78]
+  horizon: [0.62, 0.78, 0.96]
+  ground: [0.10, 0.16, 0.08]
+
+fog:
+  color: [0.66, 0.80, 0.96]
+  density: 0.0016
+
+render:
+  scale: 0.55
+  bounces: 2
+  frameGeneration: true
+  exposure: 1.0
+
+meshes:
+  box: {shape: box}
+  ball: {shape: sphere, radius: 0.5, segments: 22}
+  tower: {shape: cylinder, segments: 28}
+  spire: {shape: cone, segments: 28}
+  ground: {shape: plane, width: 1200, depth: 1200}
+
+materials:
+  grass: {albedo: [0.16, 0.42, 0.13], roughness: 0.95, kind: foliage}
+  path: {albedo: [0.62, 0.52, 0.36], roughness: 0.9}
+  stone: {albedo: [0.86, 0.83, 0.76], roughness: 0.78}
+  stoneWarm: {albedo: [0.90, 0.86, 0.74], roughness: 0.72}
+  trim: {albedo: [0.74, 0.66, 0.50], roughness: 0.8}
+  roof: {albedo: [0.60, 0.10, 0.10], roughness: 0.45}
+  roofDark: {albedo: [0.44, 0.07, 0.07], roughness: 0.5}
+  door: {albedo: [0.36, 0.20, 0.10], roughness: 0.6}
+  gold: {albedo: [1.0, 0.79, 0.32], roughness: 0.18, metallic: 1.0}
+  water:
+    albedo: [0.05, 0.24, 0.30]
+    roughness: 0.03
+    kind: water
+    tint: [0.55, 0.85, 0.82]
+    ior: 1.333
+  falls: {albedo: [0.85, 0.94, 0.98], roughness: 0.25, emissive: [0.30, 0.42, 0.48]}
+  glassPeach:
+    albedo: [0.95, 0.85, 0.90]
+    roughness: 0.02
+    kind: glass
+    tint: [0.98, 0.55, 0.68]
+    ior: 1.52
+    emissive: [0.55, 0.16, 0.26]
+  glassBlue:
+    albedo: [0.85, 0.92, 0.98]
+    roughness: 0.02
+    kind: glass
+    tint: [0.42, 0.62, 0.98]
+    ior: 1.52
+  glassGold:
+    albedo: [0.98, 0.92, 0.75]
+    roughness: 0.02
+    kind: glass
+    tint: [0.98, 0.80, 0.35]
+    ior: 1.52
+  flagRed: {albedo: [0.72, 0.10, 0.12], roughness: 0.8}
+  trunk: {albedo: [0.24, 0.14, 0.07], roughness: 0.95}
+  leaves: {albedo: [0.10, 0.34, 0.10], roughness: 0.95, kind: foliage}
+  lampGlow: {albedo: [0, 0, 0], roughness: 1, emissive: [7.0, 5.4, 2.8]}
+  mirror:
+    albedo: [0.96, 0.97, 0.98]
+    roughness: 0.02
+    metallic: 1.0
+    kind: mirror
+    tint: [0.96, 0.97, 0.99]
+
+groups:
+  # Corner turret: shaft, red cone, gold finial, flag on a pole.
+  turret:
+    - {mesh: tower, material: stoneWarm, scale: [13, 30, 13]}
+    - {mesh: box, material: trim, position: [0, 30, 0], scale: [15, 1.2, 15]}
+    - {mesh: spire, material: roof, position: [0, 31, 0], scale: [16, 14, 16]}
+    - {mesh: ball, material: gold, position: [0, 45.5, 0], scale: [1.8, 1.8, 1.8]}
+    - {mesh: box, material: stone, position: [0, 47, 0], scale: [0.25, 4, 0.25]}
+    - {mesh: box, material: flagRed, position: [1.7, 48.4, 0], scale: [3.2, 1.7, 0.12]}
+    - {mesh: box, material: glassBlue, position: [0, 22, 6.6], scale: [3.2, 5.0, 0.5]}
+
+  tree:
+    - {mesh: box, material: trunk, scale: [1.5, 7, 1.5]}
+    - {mesh: ball, material: leaves, position: [0, 9.5, 0], scale: [11, 9, 11]}
+    - {mesh: ball, material: leaves, position: [2.2, 13, 1.0], scale: [7.5, 6.5, 7.5]}
+
+  lamp:
+    - {mesh: box, material: trim, scale: [0.5, 7, 0.5]}
+    - {mesh: ball, material: lampGlow, position: [0, 7.6, 0], scale: [1.5, 1.5, 1.5]}
+
+objects:
+  # ── grounds ────────────────────────────────────────────────────────────
+  - {mesh: ground, material: grass}
+  - {mesh: box, material: path, position: [0, 0.06, 92], scale: [26, 0.12, 120]}
+
+  # Hills ringing the grounds, kept low and wide so they read as scenery.
+  - {mesh: ball, material: grass, position: [180, -34, -40], scale: [260, 96, 260], mirror: [x]}
+  - {mesh: ball, material: grass, position: [120, -30, 190], scale: [200, 80, 200], mirror: [x]}
+  - {mesh: ball, material: grass, position: [0, -40, -230], scale: [420, 120, 300]}
+
+  # ── moat ───────────────────────────────────────────────────────────────
+  - {mesh: box, material: water, position: [0, 0.9, 6], scale: [210, 1.8, 168]}
+  - {mesh: box, material: stone, position: [0, 1.4, 6], scale: [150, 2.6, 110]}
+  - {mesh: box, material: falls, position: [70, 1.4, 74], scale: [26, 2.2, 5], rotation: [0, 0, 0]}
+  - {mesh: box, material: water, position: [70, 0.7, 88], scale: [30, 1.2, 26]}
+
+  # Bridge from the path to the front doors.
+  - {mesh: box, material: stone, position: [0, 2.6, 68], scale: [17, 1.2, 40]}
+  - {mesh: box, material: trim, position: [8, 3.6, 68], scale: [1.2, 1.6, 40], mirror: [x]}
+
+  # ── castle body ────────────────────────────────────────────────────────
+  - {mesh: box, material: stone, position: [0, 12, 0], scale: [96, 24, 74]}
+  - {mesh: box, material: trim, position: [0, 24.6, 0], scale: [99, 1.6, 77]}
+  - {mesh: box, material: stoneWarm, position: [0, 32, -6], scale: [66, 15, 52]}
+  - {mesh: box, material: trim, position: [0, 40, -6], scale: [69, 1.4, 55]}
+
+  # Wings either side of the entrance, with their own red roofs.
+  - {mesh: box, material: stone, position: [40, 9, 26], scale: [26, 18, 26], mirror: [x]}
+  - {mesh: spire, material: roof, position: [40, 18, 26], scale: [32, 16, 32], mirror: [x]}
+
+  # Entrance block, doors, steps and the rose window above them.
+  - {mesh: box, material: stoneWarm, position: [0, 11, 38], scale: [34, 22, 8]}
+  - {mesh: box, material: trim, position: [0, 22.4, 38], scale: [37, 1.4, 10]}
+  - {mesh: box, material: door, position: [0, 6.5, 42.2], scale: [13, 13, 0.8]}
+  - {mesh: box, material: gold, position: [0, 6.5, 42.7], scale: [0.5, 13, 0.5]}
+  - {mesh: box, material: stone, position: [0, 0.9, 46], scale: [20, 1.8, 6]}
+  - {mesh: box, material: stone, position: [0, 1.8, 44], scale: [18, 1.8, 4]}
+  - {mesh: ball, material: glassPeach, position: [0, 17.5, 42.4], scale: [11, 11, 1.4]}
+  - {mesh: box, material: trim, position: [0, 17.5, 42.0], scale: [13, 1.0, 1.0], rotation: [0, 0, 45]}
+  - {mesh: box, material: trim, position: [0, 17.5, 42.0], scale: [13, 1.0, 1.0], rotation: [0, 0, -45]}
+
+  # ── towers ─────────────────────────────────────────────────────────────
+  - {group: turret, position: [44, 0, 30], mirror: [x]}
+  - {group: turret, position: [44, 0, -30], mirror: [x]}
+
+  # Central keep: drum, red cone, gold finial, colour-shifting glass lantern.
+  - {mesh: tower, material: stoneWarm, position: [0, 0, -14], scale: [40, 62, 40]}
+  - {mesh: box, material: trim, position: [0, 62, -14], scale: [44, 2, 44]}
+  - {mesh: spire, material: roof, position: [0, 63.5, -14], scale: [46, 34, 46]}
+  - {mesh: ball, material: gold, position: [0, 98, -14], scale: [4, 4, 4]}
+  - {mesh: box, material: glassGold, position: [0, 40, 6], scale: [7, 12, 1.2]}
+  - {mesh: box, material: glassBlue, position: [14, 40, 0], scale: [1.2, 12, 7], mirror: [x]}
+
+  # ── the mirror obelisk in the forecourt ───────────────────────────────
+  - {mesh: box, material: mirror, position: [-46, 8, 96], scale: [5, 16, 5]}
+  - {mesh: spire, material: mirror, position: [-46, 16, 96], scale: [7, 7, 7]}
+
+  # ── planting and lamps ────────────────────────────────────────────────
+  - {group: tree, position: [58, 0, 92], mirror: [x]}
+  - {group: tree, position: [78, 0, 130], mirror: [x]}
+  - {group: tree, position: [46, 0, 148], mirror: [x]}
+  - {group: tree, position: [104, 0, 62], mirror: [x]}
+  - {group: lamp, position: [15, 3.2, 54], mirror: [x]}
+  - {group: lamp, position: [15, 0.2, 100], mirror: [x]}
+  - {group: lamp, position: [15, 0.2, 132], mirror: [x]}

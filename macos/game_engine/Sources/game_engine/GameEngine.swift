@@ -88,6 +88,8 @@ final class GameEngine {
       "outputWidth": targets?.outputWidth ?? 0,
       "outputHeight": targets?.outputHeight ?? 0,
       "gpuMilliseconds": gpuMilliseconds,
+      "lightCount": scene?.lightCount ?? 0,
+      "bounces": Int(settings.bounceRays),
       "deviceName": device.name,
     ]
   }
@@ -124,6 +126,7 @@ final class GameEngine {
     uniforms.time = elapsed
     uniforms.frameIndex = frameIndex
     uniforms.bounceRays = max(settings.bounceRays, 1)
+    uniforms.lightCount = UInt32(scene.lightCount)
     slot.uniforms.contents().copyMemory(
       from: &uniforms, byteCount: MemoryLayout<FrameUniforms>.stride)
 

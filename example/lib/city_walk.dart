@@ -15,13 +15,14 @@ class CityWalk extends ChangeNotifier {
     LogicalKeyboardKey.keyD: Movement.right,
     LogicalKeyboardKey.arrowRight: Movement.right,
     LogicalKeyboardKey.space: Movement.up,
-    LogicalKeyboardKey.keyC: Movement.down,
+    LogicalKeyboardKey.controlLeft: Movement.down,
+    LogicalKeyboardKey.controlRight: Movement.down,
     LogicalKeyboardKey.shiftLeft: Movement.sprint,
     LogicalKeyboardKey.shiftRight: Movement.sprint,
   };
 
   final _engine = GameEngine();
-  final _city = CityScene();
+  SceneDocument? _document;
   final _camera = FreeLookCamera();
   final _held = <Movement>{};
 
@@ -34,9 +35,28 @@ class CityWalk extends ChangeNotifier {
 
   EngineStatus? status;
   double fps = 0;
+  RenderSettings settings = const RenderSettings(
+    renderScale: 0.55,
+    frameInterpolation: true,
+    bounceRays: 2,
+  );
+
+  double _fpsAccumulator = 0;
+  int _fpsSamples = 0;
+  double _sinceReadout = 0;
+  EngineStatus? _pending;
 
   int? get textureId => _engine.textureId;
   Vec3 get position => _camera.position;
+
+  Future<void> load() async {
+    final source = await rootBundle.loadString('packages/game_engine/assets/castle.yaml');
+    final document = SceneDocument.parse(source);
+    _document = document;
+    settings = document.settings;
+    _camera.placeAt(document.camera);
+    notifyListeners();
+  }
 
   Future<void> resize(Size size, double pixelRatio) async {
     final unchanged =
@@ -83,6 +103,7 @@ class CityWalk extends ChangeNotifier {
   }
 
   Future<void> _start() async {
+    if (_document == null) await load();
     _configuring = true;
     final width = (_size.width * _pixelRatio).round();
     final height = (_size.height * _pixelRatio).round();
@@ -98,8 +119,9 @@ class CityWalk extends ChangeNotifier {
             height: height,
             settings: settings,
           );
-    if (_loop == null) {
-      await _engine.setScene(_city.scene);
+    final document = _document;
+    if (document != null && _loop == null) {
+      await _engine.setScene(document.scene);
       _loop = GameLoop(_tick)..start();
     }
     _configuring = false;
@@ -108,19 +130,57 @@ class CityWalk extends ChangeNotifier {
 
   void _tick(double deltaSeconds) {
     _camera.advance(deltaSeconds, _held);
-    fps = fps * 0.9 + (1 / deltaSeconds) * 0.1;
     _engine
         .submit(
           GameFrame(
             camera: _camera.camera,
-            transforms: _city.transforms,
+            transforms: _document?.transforms ?? const [],
             aspectRatio: _size.isEmpty ? 1.6 : _size.width / _size.height,
             deltaSeconds: deltaSeconds,
           ),
         )
         .then((next) {
-          if (next != null) status = next;
+          if (next != null) _pending = next;
         });
+
+    _fpsAccumulator += 1 / deltaSeconds;
+    _fpsSamples++;
+    _sinceReadout += deltaSeconds;
+    if (_sinceReadout < 0.5) return;
+    fps = _fpsAccumulator / _fpsSamples;
+    status = _pending ?? status;
+    _fpsAccumulator = 0;
+    _fpsSamples = 0;
+    _sinceReadout = 0;
     notifyListeners();
+  }
+
+  Future<void> cycleScale() => _apply(
+    settings.copyWith(
+      renderScale: settings.renderScale >= 0.95 ? 0.4 : settings.renderScale + 0.15,
+    ),
+  );
+
+  Future<void> cycleUpscaler() {
+    if (settings.upscaling && settings.denoising) {
+      return _apply(settings.copyWith(denoising: false));
+    }
+    if (settings.upscaling) {
+      return _apply(settings.copyWith(upscaling: false, denoising: false));
+    }
+    return _apply(settings.copyWith(upscaling: true, denoising: true));
+  }
+
+  Future<void> toggleFrameGen() =>
+      _apply(settings.copyWith(frameInterpolation: !settings.frameInterpolation));
+
+  Future<void> cycleBounces() => _apply(
+    settings.copyWith(bounceRays: settings.bounceRays >= 4 ? 1 : settings.bounceRays + 1),
+  );
+
+  Future<void> _apply(RenderSettings next) async {
+    settings = next;
+    notifyListeners();
+    await _start();
   }
 }

@@ -21,6 +21,7 @@ struct FrameUniforms {
   var time: Float = 0
   var frameIndex: UInt32 = 0
   var bounceRays: UInt32 = 1
+  var lightCount: UInt32 = 0
 }
 
 struct RenderSettings {

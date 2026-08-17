@@ -35,6 +35,7 @@ final class GameRenderer {
     encoder.setBuffer(slot.transforms, offset: 0, index: 6)
     encoder.setBuffer(slot.previousTransforms, offset: 0, index: 7)
     encoder.setBuffer(slot.inverseTransforms, offset: 0, index: 8)
+    encoder.setBuffer(scene.lights, offset: 0, index: 9)
     scene.meshes.accelerationStructures.forEach { encoder.useResource($0, usage: .read) }
     dispatch(
       encoder: encoder, pipeline: tracePipeline, width: targets.renderWidth,

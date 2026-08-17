@@ -15,6 +15,7 @@ dependencies:
   flutter:
     sdk: flutter
   vector_math: ^2.2.0
+  yaml: ^3.1.2
 
 dev_dependencies:
   flutter_test:
@@ -22,6 +23,9 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
+  assets:
+    - assets/castle.yaml
+
   plugin:
     platforms:
       macos:

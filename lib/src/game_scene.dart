@@ -1,6 +1,6 @@
 import 'package:game_engine/src/vec3.dart';
 
-enum MeshShape { box, sphere, plane }
+enum MeshShape { box, sphere, plane, pyramid, frustum, cylinder, cone }
 
 class MeshDescription {
   const MeshDescription._(this.shape, this.size, this.segments);
@@ -9,6 +9,14 @@ class MeshDescription {
     : this._(MeshShape.plane, Vec3(width, 0, depth), 0);
   MeshDescription.sphere(double radius, {int segments = 28})
     : this._(MeshShape.sphere, Vec3(radius, radius, radius), segments);
+  MeshDescription.pyramid(double base, double height)
+    : this._(MeshShape.pyramid, Vec3(base, height, 0), 0);
+  MeshDescription.frustum(double base, double height, double top)
+    : this._(MeshShape.frustum, Vec3(base, height, top), 0);
+  MeshDescription.cylinder({int segments = 24})
+    : this._(MeshShape.cylinder, const Vec3(1, 1, 1), segments);
+  MeshDescription.cone({int segments = 24})
+    : this._(MeshShape.cone, const Vec3(1, 1, 0), segments);
 
   final MeshShape shape;
   final Vec3 size;
@@ -21,7 +29,7 @@ class MeshDescription {
   };
 }
 
-enum MaterialKind { opaque, water, glass, foliage }
+enum MaterialKind { opaque, water, glass, foliage, mirror }
 
 class GameMaterial {
   const GameMaterial({
@@ -32,6 +40,7 @@ class GameMaterial {
     this.kind = MaterialKind.opaque,
     this.tint = const Vec3(1, 1, 1),
     this.ior = 1.45,
+    this.animated = false,
   });
 
   final Vec3 albedo;
@@ -41,6 +50,7 @@ class GameMaterial {
   final MaterialKind kind;
   final Vec3 tint;
   final double ior;
+  final bool animated;
 
   Map<String, dynamic> toJson() => {
     'albedo': albedo.values,
@@ -50,6 +60,7 @@ class GameMaterial {
     'kind': kind.name,
     'tint': tint.values,
     'ior': ior,
+    'animated': animated,
   };
 }
 

@@ -1,6 +1,10 @@
 import Metal
 import simd
 
+extension SIMD4 where Scalar == Float {
+  var xyz: SIMD3<Float> { SIMD3<Float>(x, y, z) }
+}
+
 @available(macOS 15.0, *)
 private func packed(_ matrix: simd_float4x4) -> MTLPackedFloat4x3 {
   var result = MTLPackedFloat4x3()
@@ -61,7 +65,10 @@ final class SceneResources {
   let meshes: MeshLibrary
   let materials: MTLBuffer
   let meshRanges: MTLBuffer
+  let lights: MTLBuffer
   let instanceCount: Int
+  private(set) var lightCount = 0
+  private let emissiveInstances: [Int]
   private let slots: [FrameSlot]
   private let accelerationDescriptor: MTLInstanceAccelerationStructureDescriptor
   private var transforms: [simd_float4x4]
@@ -94,6 +101,18 @@ final class SceneResources {
     else { return nil }
     self.meshRanges = meshRanges
 
+    emissiveInstances = scene.instances.enumerated()
+      .filter { simd_reduce_max($0.element.material.emissive) > 0.35 }
+      .map(\.offset)
+      .prefix(96)
+      .map { $0 }
+    guard
+      let lights = device.makeBuffer(
+        length: max(MemoryLayout<SceneLight>.stride * emissiveInstances.count, 16),
+        options: .storageModeShared)
+    else { return nil }
+    self.lights = lights
+
     let descriptor = MTLInstanceAccelerationStructureDescriptor()
     descriptor.instancedAccelerationStructures = meshes.accelerationStructures
     descriptor.instanceCount = scene.instances.count
@@ -122,6 +141,20 @@ final class SceneResources {
     let inverses = transforms.map { $0.inverse }
     slot.inverseTransforms.contents().copyMemory(
       from: inverses, byteCount: MemoryLayout<simd_float4x4>.stride * instanceCount)
+
+    let lightValues = lights.contents().bindMemory(
+      to: SceneLight.self, capacity: max(emissiveInstances.count, 1))
+    emissiveInstances.enumerated().forEach { slot, instance in
+      let transform = transforms[instance]
+      let scale = SIMD3<Float>(
+        length(transform.columns.0.xyz), length(transform.columns.1.xyz),
+        length(transform.columns.2.xyz))
+      lightValues[slot] = SceneLight(
+        position: transform.columns.3.xyz,
+        radius: max(simd_reduce_max(scale) * 0.5, 0.05),
+        color: scene.instances[instance].material.emissive)
+    }
+    lightCount = emissiveInstances.count
 
     let descriptors = slot.instanceDescriptors.contents().bindMemory(
       to: MTLAccelerationStructureInstanceDescriptor.self, capacity: instanceCount)

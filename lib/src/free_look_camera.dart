@@ -17,6 +17,7 @@ class FreeLookCamera {
   Vec3 _velocity = Vec3.zero;
   double _yaw = -math.pi / 2;
   double _pitch = -0.12;
+  double _fieldOfView = 1.15;
 
   Vec3 get position => _position;
   double get speed => _velocity.length;
@@ -24,7 +25,7 @@ class FreeLookCamera {
   GameCamera get camera => GameCamera(
     position: _position,
     target: _position + _forward,
-    fieldOfView: 1.15,
+    fieldOfView: _fieldOfView,
   );
 
   Vec3 get _forward => Vec3(
@@ -34,6 +35,14 @@ class FreeLookCamera {
   );
 
   Vec3 get _right => Vec3(-math.sin(_yaw), 0, math.cos(_yaw));
+
+  void placeAt(GameCamera start) {
+    _position = start.position;
+    final forward = (start.target - start.position).normalized;
+    _pitch = math.asin(forward.y.clamp(-1.0, 1.0));
+    _yaw = math.atan2(forward.z, forward.x);
+    _fieldOfView = start.fieldOfView;
+  }
 
   void look(Offset delta) {
     _yaw += delta.dx * _lookSensitivity;
