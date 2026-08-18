@@ -1,0 +1,137 @@
+name: Ray Tracing Playground
+
+# A studio set for the renderer: one overhead panel light, a tree strung with
+# emissive baubles that light the room themselves, chrome and glass to bend it
+# all, and a roughness sweep across the front so the BRDF is visible at a
+# glance. Everything here is a primitive — the interest is in the light.
+
+camera:
+  position: [0, 11, 52]
+  yaw: -90
+  pitch: -8
+  fieldOfView: 58
+
+sun:
+  direction: [-0.35, -0.8, -0.45]
+  color: [0.55, 0.62, 0.78]
+  intensity: 0.25
+  angularRadius: 0.05
+
+sky:
+  zenith: [0.012, 0.020, 0.040]
+  horizon: [0.030, 0.040, 0.060]
+  ground: [0.008, 0.010, 0.014]
+
+fog: {color: [0.02, 0.03, 0.05], density: 0.004, scattering: 0.010}
+
+render: {scale: 0.55, bounces: 3, frameGeneration: true, exposure: 0.9}
+
+meshes:
+  box: {shape: box}
+  ball: {shape: sphere, radius: 0.5, segments: 26}
+  cone: {shape: cone, segments: 28}
+  drum: {shape: cylinder, segments: 24}
+  floor: {shape: plane, width: 400, depth: 400}
+
+materials:
+  studio: {albedo: [0.55, 0.55, 0.57], roughness: 0.9}
+  polished: {albedo: [0.30, 0.31, 0.34], roughness: 0.08, metallic: 0.25}
+  panel: {albedo: [0, 0, 0], roughness: 1, emissive: [6.4, 6.2, 6.0]}
+
+  chrome:
+    albedo: [0.96, 0.97, 0.98]
+    roughness: 0.02
+    metallic: 1.0
+    kind: mirror
+    tint: [0.95, 0.96, 0.97]
+  gold:
+    albedo: [1.0, 0.78, 0.34]
+    roughness: 0.12
+    metallic: 1.0
+    kind: mirror
+    tint: [1.0, 0.80, 0.38]
+  glass:
+    albedo: [0.92, 0.95, 0.98]
+    roughness: 0.02
+    kind: glass
+    tint: [0.86, 0.93, 0.97]
+    ior: 1.52
+  prism:
+    albedo: [0.95, 0.92, 0.98]
+    roughness: 0.02
+    kind: glass
+    tint: [0.90, 0.45, 0.55]
+    ior: 1.6
+    animated: true
+
+  needles: {albedo: [0.05, 0.24, 0.08], roughness: 0.95, kind: foliage}
+  bark: {albedo: [0.16, 0.09, 0.05], roughness: 0.95}
+  ribbon: {albedo: [0.62, 0.06, 0.08], roughness: 0.45}
+  giftRed: {albedo: [0.52, 0.05, 0.07], roughness: 0.55}
+  giftBlue: {albedo: [0.06, 0.12, 0.45], roughness: 0.55}
+  giftCream: {albedo: [0.72, 0.68, 0.58], roughness: 0.7}
+
+  bulbRed: {albedo: [0, 0, 0], roughness: 1, emissive: [8.0, 0.9, 1.0]}
+  bulbGold: {albedo: [0, 0, 0], roughness: 1, emissive: [7.6, 5.0, 1.4]}
+  bulbBlue: {albedo: [0, 0, 0], roughness: 1, emissive: [1.0, 3.2, 8.0]}
+  bulbGreen: {albedo: [0, 0, 0], roughness: 1, emissive: [1.2, 7.0, 2.2]}
+
+  rough00: {albedo: [0.85, 0.82, 0.78], roughness: 0.03, metallic: 1.0}
+  rough25: {albedo: [0.85, 0.82, 0.78], roughness: 0.18, metallic: 1.0}
+  rough50: {albedo: [0.85, 0.82, 0.78], roughness: 0.38, metallic: 1.0}
+  rough75: {albedo: [0.85, 0.82, 0.78], roughness: 0.62, metallic: 1.0}
+  rough99: {albedo: [0.85, 0.82, 0.78], roughness: 0.95, metallic: 1.0}
+
+groups:
+  gift:
+    - {mesh: box, material: giftRed, scale: [5, 4, 5]}
+    - {mesh: box, material: ribbon, position: [0, 0.1, 0], scale: [5.3, 4.2, 0.7]}
+    - {mesh: box, material: ribbon, position: [0, 0.1, 0], scale: [0.7, 4.2, 5.3]}
+
+  giftBlue:
+    - {mesh: box, material: giftBlue, scale: [4, 5.5, 4]}
+    - {mesh: box, material: giftCream, position: [0, 0.1, 0], scale: [4.3, 5.7, 0.6]}
+
+objects:
+  # ── the set ────────────────────────────────────────────────────────────
+  - {mesh: floor, material: polished}
+  - {mesh: box, material: studio, position: [0, 24, -34], scale: [96, 48, 2]}
+  - {mesh: box, material: studio, position: [-46, 24, 0], scale: [2, 48, 70], mirror: [x]}
+
+  # One soft panel overhead — the room's key light.
+  - {mesh: box, material: panel, position: [0, 38, 4], scale: [26, 1, 18]}
+
+  # ── the tree ───────────────────────────────────────────────────────────
+  - {mesh: drum, material: bark, position: [0, 1.5, -6], scale: [2, 3, 2]}
+  - {mesh: cone, material: needles, position: [0, 3, -6], scale: [20, 12, 20]}
+  - {mesh: cone, material: needles, position: [0, 10, -6], scale: [16, 11, 16]}
+  - {mesh: cone, material: needles, position: [0, 16.5, -6], scale: [12, 10, 12]}
+  - {mesh: cone, material: needles, position: [0, 22.5, -6], scale: [7.5, 8, 7.5]}
+  - {mesh: ball, material: bulbGold, position: [0, 31, -6], scale: [2.4, 2.4, 2.4]}
+
+  # Baubles: each one is a light, so the tree lights the room.
+  - {mesh: ball, material: bulbRed, position: [6.5, 6, -1.5], scale: [1.5, 1.5, 1.5], mirror: [x]}
+  - {mesh: ball, material: bulbBlue, position: [4.5, 12, -1], scale: [1.4, 1.4, 1.4], mirror: [x]}
+  - {mesh: ball, material: bulbGreen, position: [3, 18, -2], scale: [1.3, 1.3, 1.3], mirror: [x]}
+  - {mesh: ball, material: bulbGold, position: [7, 8.5, -11], scale: [1.4, 1.4, 1.4], mirror: [x]}
+  - {mesh: ball, material: bulbRed, position: [4, 14.5, -11], scale: [1.3, 1.3, 1.3], mirror: [x]}
+  - {mesh: ball, material: chrome, position: [8, 4.5, -2], scale: [2.2, 2.2, 2.2], mirror: [x]}
+  - {mesh: ball, material: gold, position: [5.5, 10, -12], scale: [1.9, 1.9, 1.9], mirror: [x]}
+
+  # ── the showpieces ─────────────────────────────────────────────────────
+  - {mesh: ball, material: chrome, position: [-20, 7, 10], scale: [14, 14, 14]}
+  - {mesh: ball, material: glass, position: [19, 6, 12], scale: [12, 12, 12]}
+  - {mesh: cone, material: prism, position: [26, 0, -8], scale: [11, 16, 11]}
+
+  # ── roughness sweep, mirror to rough, left to right ────────────────────
+  - {mesh: ball, material: rough00, position: [-24, 2.6, 30], scale: [5.2, 5.2, 5.2]}
+  - {mesh: ball, material: rough25, position: [-12, 2.6, 30], scale: [5.2, 5.2, 5.2]}
+  - {mesh: ball, material: rough50, position: [0, 2.6, 30], scale: [5.2, 5.2, 5.2]}
+  - {mesh: ball, material: rough75, position: [12, 2.6, 30], scale: [5.2, 5.2, 5.2]}
+  - {mesh: ball, material: rough99, position: [24, 2.6, 30], scale: [5.2, 5.2, 5.2]}
+
+  # ── gifts ──────────────────────────────────────────────────────────────
+  - {group: gift, position: [10, 2, 4]}
+  - {group: giftBlue, position: [-9, 2.7, 3]}
+  - {group: gift, position: [-2, 2, 8], rotation: [0, 28, 0]}
+  - {group: giftBlue, position: [15, 2.7, -4], rotation: [0, -18, 0]}

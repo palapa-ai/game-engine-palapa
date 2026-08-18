@@ -25,6 +25,10 @@ dev_dependencies:
 flutter:
   assets:
     - assets/castle.yaml
+    - assets/fountain.yaml
+    - assets/track.yaml
+    - assets/playground.yaml
+    - assets/cornell.yaml
 
   plugin:
     platforms:

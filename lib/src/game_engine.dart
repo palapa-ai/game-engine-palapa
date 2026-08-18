@@ -10,10 +10,11 @@ class GameEngine {
 
   /// Raw pointer deltas while the mouse is captured; Flutter's own pointer
   /// stream goes still because the cursor is unpinned from the display.
-  Stream<Offset> get mouseDeltas => _mouse.receiveBroadcastStream().map((event) {
-    final delta = (event as List).cast<double>();
-    return Offset(delta[0], delta[1]);
-  });
+  Stream<Offset> get mouseDeltas =>
+      _mouse.receiveBroadcastStream().map((event) {
+        final delta = (event as List).cast<double>();
+        return Offset(delta[0], delta[1]);
+      });
 
   Future<bool> setMouseCaptured(bool captured) async =>
       await _channel.invokeMethod<bool>('setMouseCaptured', captured) ?? false;

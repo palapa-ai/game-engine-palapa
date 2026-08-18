@@ -35,11 +35,7 @@ class CityWalk extends ChangeNotifier {
 
   EngineStatus? status;
   double fps = 0;
-  RenderSettings settings = const RenderSettings(
-    renderScale: 0.55,
-    frameInterpolation: true,
-    bounceRays: 2,
-  );
+  RenderSettings settings = const RenderSettings();
 
   double _fpsAccumulator = 0;
   int _fpsSamples = 0;
@@ -50,7 +46,9 @@ class CityWalk extends ChangeNotifier {
   Vec3 get position => _camera.position;
 
   Future<void> load() async {
-    final source = await rootBundle.loadString('packages/game_engine/assets/castle.yaml');
+    final source = await rootBundle.loadString(
+      'packages/game_engine/assets/cornell.yaml',
+    );
     final document = SceneDocument.parse(source);
     _document = document;
     settings = document.settings;
@@ -83,9 +81,21 @@ class CityWalk extends ChangeNotifier {
   }
 
   KeyEventResult handleKey(KeyEvent event) {
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      setCaptured(false);
-      return KeyEventResult.handled;
+    if (event is KeyDownEvent) {
+      final shortcut = {
+        LogicalKeyboardKey.escape: () => setCaptured(false),
+        LogicalKeyboardKey.digit1: cycleResolution,
+        LogicalKeyboardKey.digit2: cycleUpscaler,
+        LogicalKeyboardKey.digit3: toggleFrameGen,
+        LogicalKeyboardKey.digit4: cycleBounces,
+        LogicalKeyboardKey.digit5: cycleSamples,
+        LogicalKeyboardKey.digit6: toggleVolumetrics,
+        LogicalKeyboardKey.digit7: toggleSoftShadows,
+      }[event.logicalKey];
+      if (shortcut != null) {
+        shortcut();
+        return KeyEventResult.handled;
+      }
     }
     final movement = _bindings[event.logicalKey];
     if (movement == null) return KeyEventResult.ignored;
@@ -107,11 +117,6 @@ class CityWalk extends ChangeNotifier {
     _configuring = true;
     final width = (_size.width * _pixelRatio).round();
     final height = (_size.height * _pixelRatio).round();
-    const settings = RenderSettings(
-      renderScale: 0.55,
-      frameInterpolation: true,
-    );
-
     status = _loop == null
         ? await _engine.start(width: width, height: height, settings: settings)
         : await _engine.configure(
@@ -155,28 +160,38 @@ class CityWalk extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> cycleScale() => _apply(
-    settings.copyWith(
-      renderScale: settings.renderScale >= 0.95 ? 0.4 : settings.renderScale + 0.15,
-    ),
+  static const _resolutions = [320, 640, 1280, 1920];
+  static const _sampleCounts = [1, 2, 4, 8];
+  static const _bounceCounts = [1, 2, 3, 4, 6, 8];
+
+  T _next<T>(List<T> values, T current) =>
+      values[(values.indexOf(current) + 1) % values.length];
+
+  Future<void> cycleResolution() => _apply(
+    settings.copyWith(renderWidth: _next(_resolutions, settings.renderWidth)),
   );
 
-  Future<void> cycleUpscaler() {
-    if (settings.upscaling && settings.denoising) {
-      return _apply(settings.copyWith(denoising: false));
-    }
-    if (settings.upscaling) {
-      return _apply(settings.copyWith(upscaling: false, denoising: false));
-    }
-    return _apply(settings.copyWith(upscaling: true, denoising: true));
-  }
+  Future<void> cycleUpscaler() => _apply(
+    settings.copyWith(upscaler: _next(Upscaler.values, settings.upscaler)),
+  );
 
-  Future<void> toggleFrameGen() =>
-      _apply(settings.copyWith(frameInterpolation: !settings.frameInterpolation));
+  Future<void> toggleFrameGen() => _apply(
+    settings.copyWith(frameInterpolation: !settings.frameInterpolation),
+  );
 
   Future<void> cycleBounces() => _apply(
-    settings.copyWith(bounceRays: settings.bounceRays >= 4 ? 1 : settings.bounceRays + 1),
+    settings.copyWith(bounceRays: _next(_bounceCounts, settings.bounceRays)),
   );
+
+  Future<void> cycleSamples() => _apply(
+    settings.copyWith(samples: _next(_sampleCounts, settings.samples)),
+  );
+
+  Future<void> toggleVolumetrics() =>
+      _apply(settings.copyWith(volumetrics: !settings.volumetrics));
+
+  Future<void> toggleSoftShadows() =>
+      _apply(settings.copyWith(softShadows: !settings.softShadows));
 
   Future<void> _apply(RenderSettings next) async {
     settings = next;

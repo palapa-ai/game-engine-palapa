@@ -105,6 +105,7 @@ final class MeshLibrary {
     case .frustum: return taper(size: mesh.size, top: mesh.size.z)
     case .cylinder: return round(size: mesh.size, top: mesh.size.x, segments: mesh.segments)
     case .cone: return round(size: mesh.size, top: 0, segments: mesh.segments)
+    case .mesh: return raw(vertices: mesh.vertices, indices: mesh.indices)
     }
   }
 
@@ -133,6 +134,20 @@ final class MeshLibrary {
     return (vertices, indices)
   }
 
+  private static func raw(vertices: [Float], indices: [UInt32])
+    -> (vertices: [MeshVertex], indices: [UInt32])
+  {
+    let stride = 6
+    guard vertices.count >= stride, indices.count >= 3 else { return ([], []) }
+    let unpacked = (0..<(vertices.count / stride)).map { index -> MeshVertex in
+      let base = index * stride
+      return MeshVertex(
+        position: SIMD3<Float>(vertices[base], vertices[base + 1], vertices[base + 2]),
+        normal: SIMD3<Float>(vertices[base + 3], vertices[base + 4], vertices[base + 5]))
+    }
+    return (unpacked, indices)
+  }
+
   /// Circular base at y=0 with radius size.x/2, tapering to `top` diameter at
   /// y=size.y — a cone when `top` is zero.
   private static func round(size: SIMD3<Float>, top: Float, segments: Int)
@@ -157,7 +172,11 @@ final class MeshLibrary {
           normal: normalize(direction * slope.x + SIMD3<Float>(0, slope.y, 0)))
       }
     }
-    let caps = [(0 as Float, SIMD3<Float>(0, -1, 0), radius), (height, [0, 1, 0], topRadius)]
+    let capPlanes: [(y: Float, normal: SIMD3<Float>, radius: Float)] = [
+      (0, SIMD3<Float>(0, -1, 0), radius), (height, SIMD3<Float>(0, 1, 0), topRadius),
+    ]
+    let caps =
+      capPlanes
       .flatMap { y, normal, capRadius -> [MeshVertex] in
         [MeshVertex(position: [0, y, 0], normal: normal)]
           + (0...sides).map { side -> MeshVertex in

@@ -1,0 +1,128 @@
+name: Fairy Fountain
+
+# A grotto lit almost entirely by emitted light: a column of light falling into
+# a still pool, fairy motes drifting around it, and a ring of rock and roots
+# swallowing everything else. Original geometry — every shape is built here.
+
+camera:
+  position: [0, 7, 46]
+  yaw: -90
+  pitch: -6
+  fieldOfView: 64
+
+# Barely any sun: the grotto is roofed, and the mood comes from the column.
+sun:
+  direction: [-0.2, -0.95, -0.15]
+  color: [0.45, 0.62, 0.72]
+  intensity: 0.12
+  angularRadius: 0.08
+
+sky:
+  zenith: [0.004, 0.010, 0.016]
+  horizon: [0.010, 0.026, 0.030]
+  ground: [0.002, 0.004, 0.005]
+
+fog:
+  color: [0.012, 0.045, 0.055]
+  density: 0.011
+
+render:
+  scale: 0.55
+  bounces: 3
+  frameGeneration: true
+  exposure: 0.85
+
+meshes:
+  box: {shape: box}
+  ball: {shape: sphere, radius: 0.5, segments: 20}
+  drum: {shape: cylinder, segments: 30}
+  spike: {shape: cone, segments: 22}
+  floor: {shape: plane, width: 700, depth: 700}
+
+materials:
+  rock: {albedo: [0.055, 0.062, 0.058], roughness: 0.92}
+  rockWet: {albedo: [0.04, 0.05, 0.05], roughness: 0.35, metallic: 0.1}
+  moss: {albedo: [0.05, 0.16, 0.07], roughness: 0.95, kind: foliage}
+  root: {albedo: [0.09, 0.06, 0.04], roughness: 0.9}
+  stone: {albedo: [0.30, 0.31, 0.28], roughness: 0.8}
+  water:
+    albedo: [0.02, 0.14, 0.16]
+    roughness: 0.02
+    kind: water
+    tint: [0.42, 0.92, 0.88]
+    ior: 1.333
+  column: {albedo: [0, 0, 0], roughness: 1, emissive: [5.2, 7.4, 8.0]}
+  columnCore: {albedo: [0, 0, 0], roughness: 1, emissive: [9.0, 11.0, 12.0]}
+  fairyWarm: {albedo: [0, 0, 0], roughness: 1, emissive: [7.0, 5.2, 1.9]}
+  fairyCool: {albedo: [0, 0, 0], roughness: 1, emissive: [2.0, 6.0, 7.5]}
+  fairyRose: {albedo: [0, 0, 0], roughness: 1, emissive: [7.0, 2.4, 4.2]}
+  crystal:
+    albedo: [0.75, 0.92, 0.95]
+    roughness: 0.02
+    kind: glass
+    tint: [0.45, 0.88, 0.92]
+    ior: 1.52
+    animated: true
+  mirrorStone:
+    albedo: [0.94, 0.96, 0.97]
+    roughness: 0.02
+    metallic: 1.0
+    kind: mirror
+    tint: [0.90, 0.95, 0.96]
+
+groups:
+  # A wall segment: bulk rock, a mossy shelf, and a stalactite above.
+  wall:
+    - {mesh: box, material: rock, position: [0, 13, 0], scale: [26, 26, 16]}
+    - {mesh: box, material: moss, position: [0, 1.2, -7], scale: [22, 2.4, 6]}
+    - {mesh: spike, material: rock, position: [0, 25, -3], rotation: [180, 0, 0], scale: [7, 11, 7]}
+
+  root:
+    - {mesh: drum, material: root, rotation: [0, 0, 18], scale: [2.6, 20, 2.6]}
+    - {mesh: drum, material: root, position: [2, 9, 0], rotation: [0, 0, 42], scale: [1.7, 13, 1.7]}
+
+  fairy:
+    - {mesh: ball, material: fairyWarm, scale: [0.85, 0.85, 0.85]}
+
+objects:
+  # ── grotto shell ───────────────────────────────────────────────────────
+  - {mesh: floor, material: rock}
+  - {mesh: box, material: rock, position: [0, 34, 0], scale: [120, 6, 120]}
+
+  - {group: wall, position: [34, 0, 12], rotation: [0, 90, 0], mirror: [x]}
+  - {group: wall, position: [34, 0, -14], rotation: [0, 90, 0], mirror: [x]}
+  - {group: wall, position: [0, 0, -36]}
+  - {group: wall, position: [22, 0, -34], mirror: [x]}
+
+  # ── the pool ───────────────────────────────────────────────────────────
+  - {mesh: drum, material: water, position: [0, 0.9, 0], scale: [46, 1.8, 46]}
+  - {mesh: drum, material: stone, position: [0, 1.1, 0], scale: [52, 2.2, 52]}
+  - {mesh: drum, material: rockWet, position: [0, 0.4, 0], scale: [58, 0.8, 58]}
+
+  # Pedestal the light lands on, and its mirrored cap.
+  - {mesh: drum, material: stone, position: [0, 2.4, 0], scale: [9, 4.8, 9]}
+  - {mesh: drum, material: mirrorStone, position: [0, 4.9, 0], scale: [7.6, 0.5, 7.6]}
+
+  # ── the column of light ────────────────────────────────────────────────
+  - {mesh: drum, material: columnCore, position: [0, 18, 0], scale: [1.5, 30, 1.5]}
+  - {mesh: drum, material: column, position: [0, 18, 0], scale: [3.4, 30, 3.4]}
+  - {mesh: ball, material: columnCore, position: [0, 5.6, 0], scale: [4.4, 3.0, 4.4]}
+
+  # Crystals catching it around the rim.
+  - {mesh: spike, material: crystal, position: [17, 1.6, 17], scale: [4, 9, 4], mirror: [x, z]}
+  - {mesh: spike, material: crystal, position: [24, 1.6, 0], scale: [3, 6.5, 3], mirror: [x]}
+
+  # ── fairies ────────────────────────────────────────────────────────────
+  - {group: fairy, position: [9, 6.5, 7], mirror: [x, z]}
+  - {group: fairy, position: [15, 9.5, -4], mirror: [x]}
+  - {mesh: ball, material: fairyCool, position: [7, 12, -9], scale: [0.8, 0.8, 0.8], mirror: [x]}
+  - {mesh: ball, material: fairyCool, position: [19, 5.5, 12], scale: [0.7, 0.7, 0.7], mirror: [x]}
+  - {mesh: ball, material: fairyRose, position: [12, 15, 6], scale: [0.9, 0.9, 0.9], mirror: [x]}
+  - {mesh: ball, material: fairyRose, position: [4, 9, 18], scale: [0.75, 0.75, 0.75], mirror: [z]}
+  - {mesh: ball, material: fairyWarm, position: [26, 11, -18], scale: [0.8, 0.8, 0.8], mirror: [x]}
+
+  # ── roots and growth ───────────────────────────────────────────────────
+  - {group: root, position: [30, 0, 22], mirror: [x]}
+  - {group: root, position: [28, 0, -24], rotation: [0, 40, 0], mirror: [x]}
+  - {mesh: ball, material: moss, position: [22, 1.4, 26], scale: [12, 2.5, 12], mirror: [x]}
+  - {mesh: ball, material: moss, position: [30, 1.4, -8], scale: [9, 2, 9], mirror: [x]}

@@ -1,9 +1,17 @@
+import 'dart:typed_data';
+
 import 'package:game_engine/src/vec3.dart';
 
-enum MeshShape { box, sphere, plane, pyramid, frustum, cylinder, cone }
+enum MeshShape { box, sphere, plane, pyramid, frustum, cylinder, cone, mesh }
 
 class MeshDescription {
-  const MeshDescription._(this.shape, this.size, this.segments);
+  const MeshDescription._(
+    this.shape,
+    this.size,
+    this.segments, {
+    this.vertices,
+    this.indices,
+  });
   const MeshDescription.box(Vec3 size) : this._(MeshShape.box, size, 0);
   MeshDescription.plane(double width, double depth)
     : this._(MeshShape.plane, Vec3(width, 0, depth), 0);
@@ -18,14 +26,31 @@ class MeshDescription {
   MeshDescription.cone({int segments = 24})
     : this._(MeshShape.cone, const Vec3(1, 1, 0), segments);
 
+  /// Geometry carried as data: interleaved position/normal triples plus a
+  /// triangle index list, so a whole model can live inside a scene document.
+  MeshDescription.raw({
+    required Float32List vertices,
+    required Uint32List indices,
+  }) : this._(
+         MeshShape.mesh,
+         const Vec3(1, 1, 1),
+         0,
+         vertices: vertices,
+         indices: indices,
+       );
+
   final MeshShape shape;
   final Vec3 size;
   final int segments;
+  final Float32List? vertices;
+  final Uint32List? indices;
 
   Map<String, dynamic> toJson() => {
     'shape': shape.name,
     'size': size.values,
     'segments': segments,
+    if (vertices != null) 'vertices': vertices,
+    if (indices != null) 'indices': Int32List.fromList(indices!),
   };
 }
 
@@ -113,12 +138,24 @@ class SkyGradient {
 }
 
 class Fog {
-  const Fog({this.color = Vec3.zero, this.density = 0.0});
+  const Fog({
+    this.color = Vec3.zero,
+    this.density = 0.0,
+    this.scattering = 0.0,
+  });
 
   final Vec3 color;
   final double density;
 
-  Map<String, dynamic> toJson() => {'color': color.values, 'density': density};
+  /// How much light the air itself catches — what turns a sunbeam through
+  /// stained glass into a visible shaft rather than a patch on the floor.
+  final double scattering;
+
+  Map<String, dynamic> toJson() => {
+    'color': color.values,
+    'density': density,
+    'scattering': scattering,
+  };
 }
 
 class GameScene {

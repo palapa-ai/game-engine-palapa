@@ -13,6 +13,7 @@ public class GameEnginePlugin: NSObject, FlutterPlugin {
   }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
+    MetalHUD.enableByDefault()
     let channel = FlutterMethodChannel(
       name: "palapa/game_engine", binaryMessenger: registrar.messenger)
     let instance = GameEnginePlugin(registry: registrar.textures)

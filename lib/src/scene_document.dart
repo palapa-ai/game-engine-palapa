@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:game_engine/src/game_camera.dart';
 import 'package:game_engine/src/game_scene.dart';
@@ -114,6 +115,12 @@ class SceneDocument {
       'frustum' => MeshDescription.frustum(1, 1, _number(json['top']) ?? 0.6),
       'cylinder' => MeshDescription.cylinder(segments: segments),
       'cone' => MeshDescription.cone(segments: segments),
+      'mesh' => MeshDescription.raw(
+        vertices: Float32List.fromList(_numbers(json['vertices'])),
+        indices: Uint32List.fromList(
+          _numbers(json['indices']).map((value) => value.round()).toList(),
+        ),
+      ),
       _ => const MeshDescription.box(Vec3(1, 1, 1)),
     };
   }
@@ -148,6 +155,7 @@ class SceneDocument {
   static Fog _fog(YamlMap? json) => Fog(
     color: _color(json?['color']) ?? Vec3.zero,
     density: _number(json?['density']) ?? 0,
+    scattering: _number(json?['scattering']) ?? 0,
   );
 
   static GameCamera _camera(YamlMap? json) {
@@ -167,17 +175,26 @@ class SceneDocument {
   }
 
   static RenderSettings _settings(YamlMap? json) => RenderSettings(
-    renderScale: _number(json?['scale']) ?? 0.55,
+    renderWidth: json?['resolution'] as int? ?? 640,
     bounceRays: json?['bounces'] as int? ?? 2,
-    upscaling: json?['upscaling'] as bool? ?? true,
-    denoising: json?['denoising'] as bool? ?? true,
+    samples: json?['samples'] as int? ?? 1,
+    upscaler: Upscaler.values.firstWhere(
+      (mode) => mode.name == json?['upscaler'],
+      orElse: () => Upscaler.denoised,
+    ),
     frameInterpolation: json?['frameGeneration'] as bool? ?? true,
+    volumetrics: json?['volumetrics'] as bool? ?? true,
+    softShadows: json?['softShadows'] as bool? ?? true,
     exposure: _number(json?['exposure']) ?? 1,
   );
 
   static double _radians(double degrees) => degrees * math.pi / 180;
 
   static double? _number(Object? value) => (value as num?)?.toDouble();
+
+  static List<double> _numbers(Object? value) => value is YamlList
+      ? value.cast<num>().map((number) => number.toDouble()).toList()
+      : const [];
 
   static Vec3? _color(Object? value) {
     if (value is! YamlList) return null;

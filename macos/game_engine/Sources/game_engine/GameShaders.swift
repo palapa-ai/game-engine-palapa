@@ -28,9 +28,11 @@ enum GameShaders {
       float sunAngularRadius;
       float exposure;
       float fogDensity;
+      float scattering;
       float time;
       uint frameIndex;
       uint bounceRays;
+      uint samples;
       uint lightCount;
     };
 
@@ -337,12 +339,27 @@ enum GameShaders {
       float4 target = uniforms.inverseViewProjection * float4(ndc, 1.0, 1.0);
       float3 origin = uniforms.cameraPosition;
       float3 direction = normalize(target.xyz / target.w - origin);
+      float3 primaryDirection = direction;
 
       uint state = hash(pixel.x * 1973u + pixel.y * 9277u + uniforms.frameIndex * 26699u);
-      float3 radiance = float3(0.0);
-      float3 throughput = float3(1.0);
+      uint sampleCount = max(uniforms.samples, 1u);
+      float3 total = float3(0.0);
       float primaryDistance = 1e5;
       bool wroteSurface = false;
+
+      for (uint sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
+      float3 radiance = float3(0.0);
+      float3 throughput = float3(1.0);
+      float2 sampleJitter = sampleIndex == 0
+          ? float2(0.0)
+          : float2(randomFloat(state), randomFloat(state)) - 0.5;
+      float2 sampleUV = (float2(pixel) + 0.5 + uniforms.jitter + sampleJitter)
+                      / uniforms.renderSize;
+      float2 sampleNDC = float2(sampleUV.x * 2.0 - 1.0, 1.0 - sampleUV.y * 2.0);
+      float4 sampleTarget = uniforms.inverseViewProjection * float4(sampleNDC, 1.0, 1.0);
+      origin = uniforms.cameraPosition;
+      direction = normalize(sampleTarget.xyz / sampleTarget.w - origin);
+      primaryDirection = direction;
 
       for (uint depth = 0; depth < 5u; ++depth) {
         intersector<instancing, triangle_data> tracer;
@@ -442,8 +459,42 @@ enum GameShaders {
         origin = surface.position + normal * 3e-3;
       }
 
+      total += radiance;
+      }
       float fog = exp(-primaryDistance * uniforms.fogDensity);
-      colorTexture.write(float4(mix(uniforms.fogColor, radiance, fog), 1.0), pixel);
+      float3 color = mix(uniforms.fogColor, total / float(sampleCount), fog);
+
+      // Air lit by light that never reaches a surface: march the camera ray and
+      // ask, at each step, what the sun and one lamp can still see. Shadow rays
+      // tint as they cross glass, which is what colours the shafts.
+      if (uniforms.scattering > 0.0) {
+        float march = min(primaryDistance, 260.0);
+        float segment = march / 6.0;
+        float3 sunDirection = -uniforms.sunDirection;
+        float3 inscatter = float3(0.0);
+        for (uint step = 0; step < 6u; ++step) {
+          float distance = segment * (float(step) + randomFloat(state));
+          float3 point = uniforms.cameraPosition + primaryDirection * distance;
+          float3 sun = transmittance(scene, point, sunDirection, 1e5, uniforms)
+                     * uniforms.sunColor * uniforms.sunIntensity;
+          inscatter += sun * exp(-distance * uniforms.fogDensity);
+
+          if (uniforms.lightCount > 0u) {
+            uint index = min(uint(randomFloat(state) * float(uniforms.lightCount)),
+                             uniforms.lightCount - 1u);
+            SceneLight lamp = scene.lights[index];
+            float3 toLamp = lamp.position - point;
+            float lampDistance = length(toLamp);
+            float3 visible = transmittance(scene, point, toLamp / max(lampDistance, 1e-4),
+                                           lampDistance - 1e-2, uniforms);
+            inscatter += visible * lamp.color * float(uniforms.lightCount)
+                       / (1.0 + lampDistance * lampDistance * 0.08);
+          }
+        }
+        color += inscatter * uniforms.scattering * segment;
+      }
+
+      colorTexture.write(float4(color, 1.0), pixel);
     }
 
     static inline float3 tonemap(float3 color) {

@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:game_engine/game_engine.dart';
-import 'package:game_engine_example/city_walk.dart';
-import 'package:game_engine_example/readout.dart';
+import 'package:palapa_game_engine/city_walk.dart';
+import 'package:palapa_game_engine/toggles.dart';
 
 void main() => runApp(const CityWalkApp());
 
@@ -11,7 +11,7 @@ class CityWalkApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => WidgetsApp(
     color: const Color(0xFF000000),
-    title: 'Palapa Engine',
+    title: 'palapa-game-engine',
     builder: (context, _) => const _Game(),
   );
 }
@@ -60,16 +60,21 @@ class _GameState extends State<_Game> {
             onResize: (size) =>
                 _walk.resize(size, MediaQuery.devicePixelRatioOf(context)),
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Readout(
-              status: _walk.status,
-              fps: _walk.fps,
-              settings: _walk.settings,
-              onScale: _walk.cycleScale,
-              onUpscaler: _walk.cycleUpscaler,
-              onFrameGen: _walk.toggleFrameGen,
-              onBounces: _walk.cycleBounces,
+          Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Toggles(
+                settings: _walk.settings,
+                status: _walk.status,
+                onScale: _walk.cycleResolution,
+                onUpscaler: _walk.cycleUpscaler,
+                onFrameGen: _walk.toggleFrameGen,
+                onBounces: _walk.cycleBounces,
+                onSamples: _walk.cycleSamples,
+                onVolumetrics: _walk.toggleVolumetrics,
+                onSoftShadows: _walk.toggleSoftShadows,
+              ),
             ),
           ),
         ],

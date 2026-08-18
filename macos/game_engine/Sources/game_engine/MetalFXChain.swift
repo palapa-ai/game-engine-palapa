@@ -108,12 +108,14 @@ final class MetalFXChain {
   enum Upscaling: String {
     case denoised
     case temporal
+    case spatial
     case off
   }
 
   private let device: MTLDevice
   private var denoised: AnyObject?
   private var temporal: (any MTLFXTemporalScaler)?
+  private var spatial: (any MTLFXSpatialScaler)?
   private var interpolatorBox: AnyObject?
 
   private(set) var upscaling: Upscaling = .off
@@ -121,16 +123,27 @@ final class MetalFXChain {
 
   init(device: MTLDevice, targets: RenderTargets, settings: RenderSettings) {
     self.device = device
-    guard settings.upscaling else { return }
-
-    if settings.denoising, #available(macOS 26.0, *),
-      let upscaler = DenoisedUpscaler(device: device, targets: targets)
-    {
-      denoised = upscaler
-      upscaling = .denoised
-    } else if let scaler = MetalFXChain.makeTemporalScaler(device: device, targets: targets) {
-      temporal = scaler
-      upscaling = .temporal
+    switch settings.upscaler {
+    case .off:
+      break
+    case .spatial:
+      if let scaler = MetalFXChain.makeSpatialScaler(device: device, targets: targets) {
+        spatial = scaler
+        upscaling = .spatial
+      }
+    case .temporal:
+      if let scaler = MetalFXChain.makeTemporalScaler(device: device, targets: targets) {
+        temporal = scaler
+        upscaling = .temporal
+      }
+    case .denoised:
+      if #available(macOS 26.0, *), let upscaler = DenoisedUpscaler(device: device, targets: targets) {
+        denoised = upscaler
+        upscaling = .denoised
+      } else if let scaler = MetalFXChain.makeTemporalScaler(device: device, targets: targets) {
+        temporal = scaler
+        upscaling = .temporal
+      }
     }
 
     guard settings.frameInterpolation, upscaling != .off else { return }
@@ -141,6 +154,20 @@ final class MetalFXChain {
         interpolates = true
       }
     }
+  }
+
+  private static func makeSpatialScaler(device: MTLDevice, targets: RenderTargets)
+    -> (any MTLFXSpatialScaler)?
+  {
+    let descriptor = MTLFXSpatialScalerDescriptor()
+    descriptor.colorTextureFormat = RenderTargets.colorFormat
+    descriptor.outputTextureFormat = RenderTargets.colorFormat
+    descriptor.inputWidth = targets.renderWidth
+    descriptor.inputHeight = targets.renderHeight
+    descriptor.outputWidth = targets.outputWidth
+    descriptor.outputHeight = targets.outputHeight
+    descriptor.colorProcessingMode = .perceptual
+    return descriptor.makeSpatialScaler(device: device)
   }
 
   private static func makeTemporalScaler(device: MTLDevice, targets: RenderTargets)
@@ -167,6 +194,12 @@ final class MetalFXChain {
       upscaler.encode(
         commandBuffer: commandBuffer, targets: targets, output: output, jitter: jitter,
         camera: camera, reset: reset)
+      return
+    }
+    if let spatial {
+      spatial.colorTexture = targets.shaded
+      spatial.outputTexture = output
+      spatial.encode(commandBuffer: commandBuffer)
       return
     }
     guard let temporal else { return }

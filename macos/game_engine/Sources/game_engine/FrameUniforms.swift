@@ -18,26 +18,39 @@ struct FrameUniforms {
   var sunAngularRadius: Float = 0.03
   var exposure: Float = 1
   var fogDensity: Float = 0
+  var scattering: Float = 0
   var time: Float = 0
   var frameIndex: UInt32 = 0
   var bounceRays: UInt32 = 1
+  var samples: UInt32 = 1
   var lightCount: UInt32 = 0
 }
 
+enum Upscaler: String {
+  case denoised
+  case temporal
+  case spatial
+  case off
+}
+
 struct RenderSettings {
-  var renderScale: Float = 0.6
-  var bounceRays: UInt32 = 1
-  var upscaling = true
-  var denoising = true
+  var renderWidth = 640
+  var bounceRays: UInt32 = 2
+  var samples: UInt32 = 1
+  var upscaler = Upscaler.denoised
   var frameInterpolation = false
+  var volumetrics = true
+  var softShadows = true
   var exposure: Float = 1.0
 
   init(json: [String: Any]) {
-    renderScale = Float(json["renderScale"] as? Double ?? 0.6)
-    bounceRays = UInt32(json["bounceRays"] as? Int ?? 1)
-    upscaling = json["upscaling"] as? Bool ?? true
-    denoising = json["denoising"] as? Bool ?? true
+    renderWidth = json["renderWidth"] as? Int ?? 640
+    bounceRays = UInt32(json["bounceRays"] as? Int ?? 2)
+    samples = UInt32(max(json["samples"] as? Int ?? 1, 1))
+    upscaler = Upscaler(rawValue: json["upscaler"] as? String ?? "denoised") ?? .denoised
     frameInterpolation = json["frameInterpolation"] as? Bool ?? false
+    volumetrics = json["volumetrics"] as? Bool ?? true
+    softShadows = json["softShadows"] as? Bool ?? true
     exposure = Float(json["exposure"] as? Double ?? 1.0)
   }
 

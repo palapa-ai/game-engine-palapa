@@ -60,7 +60,8 @@ final class GameEngine {
     self.settings = settings
     guard
       let targets = RenderTargets(
-        device: device, cache: textureCache, output: (width, height), scale: settings.renderScale)
+        device: device, cache: textureCache, output: (width, height),
+        scale: min(Float(settings.renderWidth) / Float(max(width, 1)), 1.0))
     else { throw GameEngineError.targets }
     self.targets = targets
     chain = MetalFXChain(device: device, targets: targets, settings: settings)
@@ -90,6 +91,7 @@ final class GameEngine {
       "gpuMilliseconds": gpuMilliseconds,
       "lightCount": scene?.lightCount ?? 0,
       "bounces": Int(settings.bounceRays),
+      "samples": Int(settings.samples),
       "deviceName": device.name,
     ]
   }
@@ -114,18 +116,20 @@ final class GameEngine {
     uniforms.sunDirection = scene.scene.sun.direction
     uniforms.sunColor = scene.scene.sun.color
     uniforms.sunIntensity = scene.scene.sun.intensity
-    uniforms.sunAngularRadius = scene.scene.sun.angularRadius
+    uniforms.sunAngularRadius = settings.softShadows ? scene.scene.sun.angularRadius : 0.0
     uniforms.skyZenith = scene.scene.sky.zenith
     uniforms.skyHorizon = scene.scene.sky.horizon
     uniforms.skyGround = scene.scene.sky.ground
     uniforms.fogColor = scene.scene.fog.color
     uniforms.fogDensity = scene.scene.fog.density
+    uniforms.scattering = settings.volumetrics ? scene.scene.fog.scattering : 0.0
     uniforms.renderSize = SIMD2<Float>(Float(targets.renderWidth), Float(targets.renderHeight))
     uniforms.jitter = jitter
     uniforms.exposure = settings.exposure
     uniforms.time = elapsed
     uniforms.frameIndex = frameIndex
     uniforms.bounceRays = max(settings.bounceRays, 1)
+    uniforms.samples = max(settings.samples, 1)
     uniforms.lightCount = UInt32(scene.lightCount)
     slot.uniforms.contents().copyMemory(
       from: &uniforms, byteCount: MemoryLayout<FrameUniforms>.stride)

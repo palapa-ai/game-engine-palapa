@@ -8,12 +8,17 @@ enum MeshShape: String {
   case frustum
   case cylinder
   case cone
+  case mesh
 }
 
 struct MeshDescription {
   let shape: MeshShape
   let size: SIMD3<Float>
   let segments: Int
+  /// Interleaved position/normal triples for `.mesh`, straight from the scene
+  /// document — the engine never reads geometry off disk.
+  let vertices: [Float]
+  let indices: [UInt32]
 
   init?(json: [String: Any]) {
     guard let raw = json["shape"] as? String, let shape = MeshShape(rawValue: raw) else {
@@ -22,6 +27,8 @@ struct MeshDescription {
     self.shape = shape
     self.size = SIMD3<Float>(json["size"] as? [Double] ?? [1, 1, 1])
     self.segments = json["segments"] as? Int ?? 24
+    self.vertices = (json["vertices"] as? FlutterFloats)?.floats ?? []
+    self.indices = (json["indices"] as? FlutterInts)?.ints ?? []
   }
 }
 
@@ -103,11 +110,13 @@ struct SkyGradient {
 struct Fog {
   var color: SIMD3<Float>
   var density: Float
+  var scattering: Float
 
   init(json: [String: Any]?) {
     let json = json ?? [:]
     color = SIMD3<Float>(json["color"] as? [Double] ?? [0, 0, 0])
     density = Float(json["density"] as? Double ?? 0)
+    scattering = Float(json["scattering"] as? Double ?? 0)
   }
 }
 

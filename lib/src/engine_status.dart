@@ -14,6 +14,7 @@ class EngineStatus {
     required this.interpolated,
     required this.lightCount,
     required this.bounces,
+    required this.samples,
   });
 
   factory EngineStatus.fromJson(Map<String, dynamic> json) => EngineStatus(
@@ -32,6 +33,7 @@ class EngineStatus {
     interpolated: json['interpolated'] as bool? ?? false,
     lightCount: json['lightCount'] as int? ?? 0,
     bounces: json['bounces'] as int? ?? 1,
+    samples: json['samples'] as int? ?? 1,
   );
 
   final int? textureId;
@@ -46,11 +48,13 @@ class EngineStatus {
   final bool interpolated;
   final int lightCount;
   final int bounces;
+  final int samples;
 
   String get resolutionLabel =>
       '${renderWidth}x$renderHeight → ${outputWidth}x$outputHeight';
 
   /// One camera ray, then per bounce a continuation plus a sun and a lamp
   /// shadow ray — what the trace kernel casts for every pixel it shades.
-  int get raysPerFrame => renderWidth * renderHeight * (1 + 3 * (bounces + 1));
+  int get raysPerFrame =>
+      renderWidth * renderHeight * samples * (1 + 3 * (bounces + 1));
 }
