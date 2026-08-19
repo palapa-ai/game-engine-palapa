@@ -149,10 +149,13 @@ final class SceneResources {
       let scale = SIMD3<Float>(
         length(transform.columns.0.xyz), length(transform.columns.1.xyz),
         length(transform.columns.2.xyz))
+      // An emitter animated down to nothing has to stop lighting the room as
+      // well as stop being drawn, or a dark signal aspect still tints its corner.
+      let extent = simd_reduce_max(scale)
       lightValues[slot] = SceneLight(
         position: transform.columns.3.xyz,
-        radius: max(simd_reduce_max(scale) * 0.5, 0.05),
-        color: scene.instances[instance].material.emissive)
+        radius: max(extent * 0.5, 0.05),
+        color: extent > 1e-4 ? scene.instances[instance].material.emissive : .zero)
     }
     lightCount = emissiveInstances.count
 

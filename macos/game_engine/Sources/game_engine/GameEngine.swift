@@ -1,6 +1,7 @@
 import CoreVideo
 import Foundation
 import Metal
+import MetalFX
 import simd
 
 enum GameEngineError: Error {
@@ -38,6 +39,7 @@ final class GameEngine {
   private var pendingScaled: MTLTexture?
   private var historyReset = true
   private var gpuMilliseconds = 0.0
+  private var traceMilliseconds = 0.0
   private var elapsed: Float = 0
 
   init() throws {
@@ -58,10 +60,14 @@ final class GameEngine {
   func configure(width: Int, height: Int, settings: RenderSettings) throws {
     waitForIdle()
     self.settings = settings
+    let outputWidth = settings.outputWidth
+    let outputHeight = Int(
+      (Double(outputWidth) * Double(max(height, 1)) / Double(max(width, 1))).rounded())
     guard
       let targets = RenderTargets(
-        device: device, cache: textureCache, output: (width, height),
-        scale: min(Float(settings.renderWidth) / Float(max(width, 1)), 1.0))
+        device: device, cache: textureCache, output: (outputWidth, outputHeight),
+        surface: (width, height),
+        scale: min(Float(settings.renderWidth) / Float(max(outputWidth, 1)), 1.0))
     else { throw GameEngineError.targets }
     self.targets = targets
     chain = MetalFXChain(device: device, targets: targets, settings: settings)
@@ -89,6 +95,7 @@ final class GameEngine {
       "outputWidth": targets?.outputWidth ?? 0,
       "outputHeight": targets?.outputHeight ?? 0,
       "gpuMilliseconds": gpuMilliseconds,
+      "traceMilliseconds": traceMilliseconds,
       "lightCount": scene?.lightCount ?? 0,
       "bounces": Int(settings.bounceRays),
       "samples": Int(settings.samples),
@@ -116,13 +123,13 @@ final class GameEngine {
     uniforms.sunDirection = scene.scene.sun.direction
     uniforms.sunColor = scene.scene.sun.color
     uniforms.sunIntensity = scene.scene.sun.intensity
-    uniforms.sunAngularRadius = settings.softShadows ? scene.scene.sun.angularRadius : 0.0
+    uniforms.sunAngularRadius = scene.scene.sun.angularRadius
     uniforms.skyZenith = scene.scene.sky.zenith
     uniforms.skyHorizon = scene.scene.sky.horizon
     uniforms.skyGround = scene.scene.sky.ground
     uniforms.fogColor = scene.scene.fog.color
     uniforms.fogDensity = scene.scene.fog.density
-    uniforms.scattering = settings.volumetrics ? scene.scene.fog.scattering : 0.0
+    uniforms.scattering = scene.scene.fog.scattering
     uniforms.renderSize = SIMD2<Float>(Float(targets.renderWidth), Float(targets.renderHeight))
     uniforms.jitter = jitter
     uniforms.exposure = settings.exposure
@@ -177,9 +184,12 @@ final class GameEngine {
     renderer.encodePresent(
       commandBuffer: commandBuffer, targets: targets, source: presented, slot: slot,
       surface: surface)
+    let traced = !holdFrame
     commandBuffer.addCompletedHandler { [weak self] buffer in
       guard let self else { return }
-      self.gpuMilliseconds = (buffer.gpuEndTime - buffer.gpuStartTime) * 1000
+      let elapsed = (buffer.gpuEndTime - buffer.gpuStartTime) * 1000
+      self.gpuMilliseconds = elapsed
+      if traced { self.traceMilliseconds = elapsed }
       onFrame(surface.pixelBuffer)
       self.inflight.signal()
     }
@@ -192,6 +202,7 @@ final class GameEngine {
 
     var stats = status
     stats["interpolated"] = interpolated || holdFrame
+    stats["traced"] = traced
     return stats
   }
 

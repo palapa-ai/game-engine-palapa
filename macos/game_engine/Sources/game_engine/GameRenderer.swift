@@ -53,8 +53,8 @@ final class GameRenderer {
     encoder.setTexture(targets.presented, index: 1)
     encoder.setBuffer(slot.uniforms, offset: 0, index: 0)
     dispatch(
-      encoder: encoder, pipeline: presentPipeline, width: targets.outputWidth,
-      height: targets.outputHeight)
+      encoder: encoder, pipeline: presentPipeline, width: targets.surfaceWidth,
+      height: targets.surfaceHeight)
     encoder.endEncoding()
 
     guard let blit = commandBuffer.makeBlitCommandEncoder() else { return }

@@ -8,6 +8,7 @@ import FlutterMacOS
 final class MouseCapture: NSObject, FlutterStreamHandler {
   private var sink: FlutterEventSink?
   private var monitor: Any?
+  private var observers: [NSObjectProtocol] = []
 
   var isCaptured: Bool { monitor != nil }
 
@@ -16,7 +17,26 @@ final class MouseCapture: NSObject, FlutterStreamHandler {
     captured ? start() : stop()
   }
 
+  /// The cursor cannot wander off while it is pinned, so the way out of a
+  /// capture is escape or losing focus — the same contract every windowed
+  /// game keeps.
+  private func observeFocusLoss() {
+    guard observers.isEmpty else { return }
+    let center = NotificationCenter.default
+    for name in [
+      NSApplication.didResignActiveNotification,
+      NSWindow.didResignKeyNotification,
+      NSWindow.didMiniaturizeNotification,
+    ] {
+      observers.append(
+        center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+          self?.setCaptured(false)
+        })
+    }
+  }
+
   private func start() {
+    observeFocusLoss()
     // Without this the app never receives .mouseMoved at all, so the monitor
     // below stays silent and only drags would move the camera.
     NSApp.windows.forEach { $0.acceptsMouseMovedEvents = true }

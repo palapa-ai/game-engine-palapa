@@ -3,7 +3,10 @@ import 'dart:typed_data';
 
 import 'package:game_engine/src/game_camera.dart';
 import 'package:game_engine/src/game_scene.dart';
+import 'package:game_engine/src/blink.dart';
+import 'package:game_engine/src/instance_animation.dart';
 import 'package:game_engine/src/render_settings.dart';
+import 'package:game_engine/src/sway.dart';
 import 'package:game_engine/src/vec3.dart';
 import 'package:vector_math/vector_math_64.dart';
 import 'package:yaml/yaml.dart';
@@ -18,7 +21,9 @@ class SceneDocument {
   SceneDocument._(YamlMap root)
     : name = root['name'] as String? ?? 'scene',
       camera = _camera(root['camera'] as YamlMap?),
-      settings = _settings(root['render'] as YamlMap?) {
+      settings = _settings(root['render'] as YamlMap?),
+      _minimum = _color((root['camera'] as YamlMap?)?['minimum']),
+      _maximum = _color((root['camera'] as YamlMap?)?['maximum']) {
     final meshNames = <String>[];
     (root['meshes'] as YamlMap?)?.forEach((key, value) {
       meshNames.add(key as String);
@@ -51,11 +56,30 @@ class SceneDocument {
 
   final String name;
   final GameCamera camera;
+  Vec3? get minimum => _minimum;
+  Vec3? get maximum => _maximum;
   final RenderSettings settings;
   final List<MeshDescription> meshes = [];
   final List<GameInstance> instances = [];
   final List<Matrix4> transforms = [];
+  final Map<int, InstanceAnimation> _animations = {};
 
+  /// Instance transforms for one moment; anything without a `sway` is the
+  /// matrix the document was parsed with.
+  List<Matrix4> transformsAt(double seconds) => _animations.isEmpty
+      ? transforms
+      : transforms
+            .asMap()
+            .entries
+            .map(
+              (entry) =>
+                  _animations[entry.key]?.apply(entry.value, seconds) ??
+                  entry.value,
+            )
+            .toList(growable: false);
+
+  final Vec3? _minimum;
+  final Vec3? _maximum;
   final Map<String, int> _meshIndex = {};
   final Map<String, GameMaterial> _materials = {};
   final Map<String, List<YamlMap>> _groups = {};
@@ -94,6 +118,10 @@ class SceneDocument {
         final mesh = _meshIndex[object['mesh'] as String? ?? ''];
         final material = _materials[object['material'] as String? ?? ''];
         if (mesh == null || material == null) continue;
+        final animation =
+            _sway(object['sway'] as YamlMap?) ??
+            _blink(object['blink'] as YamlMap?);
+        if (animation != null) _animations[instances.length] = animation;
         instances.add(GameInstance(meshIndex: mesh, material: material));
         transforms.add(world..scaleByDouble(scale.x, scale.y, scale.z, 1));
       }
@@ -115,6 +143,22 @@ class SceneDocument {
       'frustum' => MeshDescription.frustum(1, 1, _number(json['top']) ?? 0.6),
       'cylinder' => MeshDescription.cylinder(segments: segments),
       'cone' => MeshDescription.cone(segments: segments),
+      'dish' => MeshDescription.dish(
+        _number(json['diameter']) ?? 1,
+        _number(json['depth']) ?? 0.3,
+        segments: segments,
+      ),
+      'sleeve' => MeshDescription.sleeve(
+        _number(json['diameter']) ?? 1,
+        _number(json['height']) ?? 1,
+        sweep: _number(json['sweep']) ?? 360,
+        segments: segments,
+      ),
+      'ring' => MeshDescription.ring(
+        _number(json['diameter']) ?? 1,
+        _number(json['tube']) ?? 0.2,
+        segments: segments,
+      ),
       'mesh' => MeshDescription.raw(
         vertices: Float32List.fromList(_numbers(json['vertices'])),
         indices: Uint32List.fromList(
@@ -175,7 +219,8 @@ class SceneDocument {
   }
 
   static RenderSettings _settings(YamlMap? json) => RenderSettings(
-    renderWidth: json?['resolution'] as int? ?? 640,
+    resolution: _resolution(json?['resolution'], Resolution.p640),
+    requestedUpscale: _resolution(json?['upscaled'], Resolution.p1080),
     bounceRays: json?['bounces'] as int? ?? 2,
     samples: json?['samples'] as int? ?? 1,
     upscaler: Upscaler.values.firstWhere(
@@ -183,10 +228,31 @@ class SceneDocument {
       orElse: () => Upscaler.denoised,
     ),
     frameInterpolation: json?['frameGeneration'] as bool? ?? true,
-    volumetrics: json?['volumetrics'] as bool? ?? true,
-    softShadows: json?['softShadows'] as bool? ?? true,
     exposure: _number(json?['exposure']) ?? 1,
   );
+
+  static Sway? _sway(YamlMap? json) => json == null
+      ? null
+      : Sway(
+          drift: _color(json['drift']) ?? Vec3.zero,
+          speed: _number(json['speed']) ?? 5,
+          pulse: _number(json['pulse']) ?? 0,
+          pulseSpeed: _number(json['pulseSpeed']) ?? 9,
+        );
+
+  static Blink? _blink(YamlMap? json) => json == null
+      ? null
+      : Blink(
+          period: _number(json['period']) ?? 6,
+          from: _number(json['from']) ?? 0,
+          to: _number(json['to']) ?? 1,
+        );
+
+  static Resolution _resolution(dynamic value, Resolution fallback) =>
+      Resolution.values.firstWhere(
+        (size) => size.label.toLowerCase() == '$value'.toLowerCase(),
+        orElse: () => fallback,
+      );
 
   static double _radians(double degrees) => degrees * math.pi / 180;
 

@@ -105,6 +105,9 @@ final class MeshLibrary {
     case .frustum: return taper(size: mesh.size, top: mesh.size.z)
     case .cylinder: return round(size: mesh.size, top: mesh.size.x, segments: mesh.segments)
     case .cone: return round(size: mesh.size, top: 0, segments: mesh.segments)
+    case .dish: return dish(size: mesh.size, segments: mesh.segments)
+    case .ring: return ring(size: mesh.size, segments: mesh.segments)
+    case .sleeve: return sleeve(size: mesh.size, segments: mesh.segments)
     case .mesh: return raw(vertices: mesh.vertices, indices: mesh.indices)
     }
   }
@@ -241,6 +244,91 @@ final class MeshLibrary {
       MeshVertex(position: [$0.x * half.x, 0, $0.y * half.y], normal: [0, 1, 0])
     }
     return (vertices, [0, 2, 1, 0, 3, 2])
+  }
+
+  /// An open tube — no caps, and `size.z` degrees of it, so a partial sweep
+  /// leaves a slot down one side. The wall is centred on -z, which puts it on
+  /// top and the slot underneath once the tube is laid down by a quarter turn.
+  private static func sleeve(size: SIMD3<Float>, segments: Int)
+    -> (vertices: [MeshVertex], indices: [UInt32])
+  {
+    let sides = max(segments, 6)
+    let radius = size.x * 0.5
+    let sweep = (size.z > 0 ? size.z : 360) * Float.pi / 180
+    let vertices = (0...sides).flatMap { side -> [MeshVertex] in
+      let angle = sweep * (Float(side) / Float(sides) - 0.5)
+      let direction = SIMD3<Float>(sin(angle), 0, -cos(angle))
+      return [0, size.y].map { height in
+        MeshVertex(
+          position: direction * radius + SIMD3<Float>(0, height, 0), normal: direction)
+      }
+    }
+    let indices = (0..<sides).flatMap { side -> [UInt32] in
+      let base = UInt32(side * 2)
+      return [base, base + 1, base + 3, base, base + 3, base + 2]
+    }
+    return (vertices, indices)
+  }
+
+  /// A spherical cap: rim circle at y=0, bulging to `size.y` at the apex —
+  /// the shape of a road mirror, not a ball cut in half.
+  private static func dish(size: SIMD3<Float>, segments: Int)
+    -> (vertices: [MeshVertex], indices: [UInt32])
+  {
+    let rim = max(size.x * 0.5, 0.0001)
+    let depth = max(size.y, 0.0001)
+    let radius = (rim * rim + depth * depth) / (2 * depth)
+    let centre = SIMD3<Float>(0, depth - radius, 0)
+    // Past a hemisphere the rim sits below the sphere's equator, where asin
+    // folds the angle back on itself and the cap comes out floating and small.
+    let limit = acos(max(min((radius - depth) / radius, 1), -1))
+    let rings = max(segments / 3, 3)
+    let sectors = max(segments, 3)
+    let vertices = (0...rings).flatMap { ring -> [MeshVertex] in
+      let phi = limit * Float(ring) / Float(rings)
+      return (0...sectors).map { sector -> MeshVertex in
+        let theta = 2 * Float.pi * Float(sector) / Float(sectors)
+        let normal = SIMD3<Float>(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta))
+        return MeshVertex(position: centre + normal * radius, normal: normal)
+      }
+    }
+    let stride = UInt32(sectors + 1)
+    let indices = (0..<rings).flatMap { ring -> [UInt32] in
+      (0..<sectors).flatMap { sector -> [UInt32] in
+        let current = UInt32(ring) * stride + UInt32(sector)
+        let next = current + stride
+        return [current, next, current + 1, current + 1, next, next + 1]
+      }
+    }
+    return (vertices, indices)
+  }
+
+  /// A torus lying in the xz plane: `size.x` across, `size.y` of tube.
+  private static func ring(size: SIMD3<Float>, segments: Int)
+    -> (vertices: [MeshVertex], indices: [UInt32])
+  {
+    let tube = max(size.y * 0.5, 0.0001)
+    let major = max(size.x * 0.5 - tube, tube)
+    let arcs = max(segments, 6)
+    let sides = max(segments / 2, 4)
+    let vertices = (0...arcs).flatMap { arc -> [MeshVertex] in
+      let theta = 2 * Float.pi * Float(arc) / Float(arcs)
+      let around = SIMD3<Float>(cos(theta), 0, sin(theta))
+      return (0...sides).map { side -> MeshVertex in
+        let phi = 2 * Float.pi * Float(side) / Float(sides)
+        let normal = around * cos(phi) + SIMD3<Float>(0, sin(phi), 0)
+        return MeshVertex(position: around * major + normal * tube, normal: normal)
+      }
+    }
+    let stride = UInt32(sides + 1)
+    let indices = (0..<arcs).flatMap { arc -> [UInt32] in
+      (0..<sides).flatMap { side -> [UInt32] in
+        let current = UInt32(arc) * stride + UInt32(side)
+        let next = current + stride
+        return [current, next, current + 1, current + 1, next, next + 1]
+      }
+    }
+    return (vertices, indices)
   }
 
   private static func sphere(radius: Float, segments: Int)

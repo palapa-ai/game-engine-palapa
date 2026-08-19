@@ -8,6 +8,9 @@ enum MeshShape: String {
   case frustum
   case cylinder
   case cone
+  case dish
+  case ring
+  case sleeve
   case mesh
 }
 

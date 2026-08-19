@@ -5,8 +5,14 @@ class GameLoop {
 
   final void Function(double deltaSeconds) onTick;
 
+  /// Frames per second to aim for, or zero to run at the display's rate.
+  /// Capping hands the spare milliseconds back to the tracer, which is how
+  /// you trade frame rate for samples.
+  int targetRate = 0;
+
   Ticker? _ticker;
   Duration _last = Duration.zero;
+  double _pending = 0;
 
   bool get isRunning => _ticker?.isActive ?? false;
 
@@ -30,6 +36,15 @@ class GameLoop {
         ? 1 / 60
         : (elapsed - _last).inMicroseconds / Duration.microsecondsPerSecond;
     _last = elapsed;
-    onTick(delta.clamp(1 / 240, 1 / 15));
+
+    if (targetRate <= 0) {
+      onTick(delta.clamp(1 / 240, 1 / 15));
+      return;
+    }
+    _pending += delta;
+    if (_pending < 1 / targetRate) return;
+    final accumulated = _pending;
+    _pending = 0;
+    onTick(accumulated.clamp(1 / 240, 1 / 15));
   }
 }

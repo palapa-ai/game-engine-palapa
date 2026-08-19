@@ -14,10 +14,13 @@ class FreeLookCamera {
   static const _damping = 12.0;
 
   Vec3 _position = const Vec3(0, 14, 86);
+  Vec3? _minimum;
+  Vec3? _maximum;
   Vec3 _velocity = Vec3.zero;
   double _yaw = -math.pi / 2;
   double _pitch = -0.12;
   double _fieldOfView = 1.15;
+  Projection projection = Projection.perspective;
 
   Vec3 get position => _position;
   double get speed => _velocity.length;
@@ -26,6 +29,7 @@ class FreeLookCamera {
     position: _position,
     target: _position + _forward,
     fieldOfView: _fieldOfView,
+    projection: projection,
   );
 
   Vec3 get _forward => Vec3(
@@ -35,6 +39,25 @@ class FreeLookCamera {
   );
 
   Vec3 get _right => Vec3(-math.sin(_yaw), 0, math.cos(_yaw));
+
+  /// Keeps the camera inside the world it was given — without this you walk
+  /// through a wall of a sealed room and the render goes black.
+  void constrainTo(Vec3? minimum, Vec3? maximum) {
+    _minimum = minimum;
+    _maximum = maximum;
+    _position = _clamped(_position);
+  }
+
+  Vec3 _clamped(Vec3 position) {
+    final minimum = _minimum;
+    final maximum = _maximum;
+    if (minimum == null || maximum == null) return position;
+    return Vec3(
+      position.x.clamp(minimum.x, maximum.x),
+      position.y.clamp(minimum.y, maximum.y),
+      position.z.clamp(minimum.z, maximum.z),
+    );
+  }
 
   void placeAt(GameCamera start) {
     _position = start.position;
@@ -56,7 +79,7 @@ class FreeLookCamera {
     final target = _target(held);
     final blend = math.min(1.0, deltaSeconds * _damping);
     _velocity = _velocity + (target - _velocity) * blend;
-    _position = _position + _velocity * deltaSeconds;
+    _position = _clamped(_position + _velocity * deltaSeconds);
   }
 
   Vec3 _target(Set<Movement> held) {

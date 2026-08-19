@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:game_engine/game_engine.dart';
+import 'package:palapa_game_engine/toggles.dart';
 
 class CityWalk extends ChangeNotifier {
   static final _bindings = {
@@ -35,11 +36,17 @@ class CityWalk extends ChangeNotifier {
 
   EngineStatus? status;
   double fps = 0;
+  double generatedFps = 0;
   RenderSettings settings = const RenderSettings();
 
-  double _fpsAccumulator = 0;
-  int _fpsSamples = 0;
+  int _traced = 0;
+  int _presented = 0;
   double _sinceReadout = 0;
+  double _elapsed = 0;
+
+  /// A resize that landed mid-configure; dropping it strands the engine at the
+  /// old surface size and the window renders letterboxed.
+  Size? _requestedSize;
   EngineStatus? _pending;
 
   int? get textureId => _engine.textureId;
@@ -53,6 +60,7 @@ class CityWalk extends ChangeNotifier {
     _document = document;
     settings = document.settings;
     _camera.placeAt(document.camera);
+    _camera.constrainTo(document.minimum, document.maximum);
     notifyListeners();
   }
 
@@ -61,7 +69,11 @@ class CityWalk extends ChangeNotifier {
         (size.width - _size.width).abs() < 4 &&
         (size.height - _size.height).abs() < 4 &&
         pixelRatio == _pixelRatio;
-    if (unchanged || _configuring) return;
+    if (unchanged) return;
+    if (_configuring) {
+      _requestedSize = size;
+      return;
+    }
     _size = size;
     _pixelRatio = pixelRatio;
     await _start();
@@ -84,13 +96,14 @@ class CityWalk extends ChangeNotifier {
     if (event is KeyDownEvent) {
       final shortcut = {
         LogicalKeyboardKey.escape: () => setCaptured(false),
-        LogicalKeyboardKey.digit1: cycleResolution,
-        LogicalKeyboardKey.digit2: cycleUpscaler,
-        LogicalKeyboardKey.digit3: toggleFrameGen,
-        LogicalKeyboardKey.digit4: cycleBounces,
-        LogicalKeyboardKey.digit5: cycleSamples,
-        LogicalKeyboardKey.digit6: toggleVolumetrics,
-        LogicalKeyboardKey.digit7: toggleSoftShadows,
+        LogicalKeyboardKey.digit1: () => cycleResolution(1),
+        LogicalKeyboardKey.digit2: () => cycleUpscaled(1),
+        LogicalKeyboardKey.digit3: () => cycleUpscaler(1),
+        LogicalKeyboardKey.digit4: toggleFrameGen,
+        LogicalKeyboardKey.digit5: () => cycleBounces(1),
+        LogicalKeyboardKey.digit6: () => cycleSamples(1),
+        LogicalKeyboardKey.digit7: () => cycleFrameRate(1),
+        LogicalKeyboardKey.digit8: () => cycleProjection(1),
       }[event.logicalKey];
       if (shortcut != null) {
         shortcut();
@@ -131,6 +144,9 @@ class CityWalk extends ChangeNotifier {
     }
     _configuring = false;
     notifyListeners();
+    final requested = _requestedSize;
+    _requestedSize = null;
+    if (requested != null) await resize(requested, _pixelRatio);
   }
 
   void _tick(double deltaSeconds) {
@@ -139,61 +155,96 @@ class CityWalk extends ChangeNotifier {
         .submit(
           GameFrame(
             camera: _camera.camera,
-            transforms: _document?.transforms ?? const [],
+            transforms: _document?.transformsAt(_elapsed) ?? const [],
             aspectRatio: _size.isEmpty ? 1.6 : _size.width / _size.height,
             deltaSeconds: deltaSeconds,
           ),
         )
         .then((next) {
-          if (next != null) _pending = next;
+          if (next == null) return;
+          _pending = next;
+          _presented++;
+          if (next.traced) {
+            _traced++;
+            totalRays += next.raysPerFrame.toDouble();
+          }
         });
 
-    _fpsAccumulator += 1 / deltaSeconds;
-    _fpsSamples++;
+    _elapsed += deltaSeconds;
     _sinceReadout += deltaSeconds;
     if (_sinceReadout < 0.5) return;
-    fps = _fpsAccumulator / _fpsSamples;
+    fps = _traced / _sinceReadout;
+    generatedFps = _presented / _sinceReadout;
     status = _pending ?? status;
-    _fpsAccumulator = 0;
-    _fpsSamples = 0;
+    _traced = 0;
+    _presented = 0;
     _sinceReadout = 0;
     notifyListeners();
   }
 
-  static const _resolutions = [320, 640, 1280, 1920];
-  static const _sampleCounts = [1, 2, 4, 8];
-  static const _bounceCounts = [1, 2, 3, 4, 6, 8];
+  static const _sampleCounts = [1, 2, 4, 8, 16, 32, 64];
+  static const _frameRates = [0, 120, 60, 30];
+  static const _bounceCounts = [1, 2, 4, 8, 16];
 
-  T _next<T>(List<T> values, T current) =>
-      values[(values.indexOf(current) + 1) % values.length];
+  T _next<T>(List<T> values, T current, int step) =>
+      values[(values.indexOf(current) + step) % values.length];
 
-  Future<void> cycleResolution() => _apply(
-    settings.copyWith(renderWidth: _next(_resolutions, settings.renderWidth)),
+  Future<void> cycleResolution(int step) => _apply(
+    settings.copyWith(
+      resolution: _next(Resolution.values, settings.resolution, step),
+    ),
   );
 
-  Future<void> cycleUpscaler() => _apply(
-    settings.copyWith(upscaler: _next(Upscaler.values, settings.upscaler)),
+  Projection get projection => _camera.projection;
+
+  void cycleProjection(int step) {
+    _camera.projection = _next(Projection.values, _camera.projection, step);
+    notifyListeners();
+  }
+
+  Future<void> cycleUpscaled(int step) => _apply(
+    settings.copyWith(
+      upscaled: _next(settings.upscales.toList(), settings.upscaled, step),
+    ),
+  );
+
+  Future<void> cycleUpscaler(int step) => _apply(
+    settings.copyWith(
+      upscaler: _next(Upscaler.values, settings.upscaler, step),
+    ),
   );
 
   Future<void> toggleFrameGen() => _apply(
     settings.copyWith(frameInterpolation: !settings.frameInterpolation),
   );
 
-  Future<void> cycleBounces() => _apply(
-    settings.copyWith(bounceRays: _next(_bounceCounts, settings.bounceRays)),
+  Future<void> cycleBounces(int step) => _apply(
+    settings.copyWith(
+      bounceRays: _next(_bounceCounts, settings.bounceRays, step),
+    ),
   );
 
-  Future<void> cycleSamples() => _apply(
-    settings.copyWith(samples: _next(_sampleCounts, settings.samples)),
+  int targetRate = 0;
+  RayMode rayMode = RayMode.perFrame;
+  double totalRays = 0;
+
+  void cycleRayMode(int step) {
+    rayMode = _next(RayMode.values, rayMode, step);
+    notifyListeners();
+  }
+
+  void cycleFrameRate(int step) {
+    targetRate = _next(_frameRates, targetRate, step);
+    _loop?.targetRate = targetRate;
+    notifyListeners();
+  }
+
+  Future<void> cycleSamples(int step) => _apply(
+    settings.copyWith(samples: _next(_sampleCounts, settings.samples, step)),
   );
-
-  Future<void> toggleVolumetrics() =>
-      _apply(settings.copyWith(volumetrics: !settings.volumetrics));
-
-  Future<void> toggleSoftShadows() =>
-      _apply(settings.copyWith(softShadows: !settings.softShadows));
 
   Future<void> _apply(RenderSettings next) async {
+    if (_configuring) return;
     settings = next;
     notifyListeners();
     await _start();
