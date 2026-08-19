@@ -10,11 +10,14 @@ class EngineStatus {
     required this.outputWidth,
     required this.outputHeight,
     required this.gpuMilliseconds,
+    required this.traceMilliseconds,
     required this.deviceName,
     required this.interpolated,
+    required this.traced,
     required this.lightCount,
     required this.bounces,
     required this.samples,
+    required this.accumulated,
   });
 
   factory EngineStatus.fromJson(Map<String, dynamic> json) => EngineStatus(
@@ -29,11 +32,14 @@ class EngineStatus {
     outputWidth: json['outputWidth'] as int? ?? 0,
     outputHeight: json['outputHeight'] as int? ?? 0,
     gpuMilliseconds: (json['gpuMilliseconds'] as num? ?? 0).toDouble(),
+    traceMilliseconds: (json['traceMilliseconds'] as num? ?? 0).toDouble(),
     deviceName: json['deviceName'] as String? ?? '',
     interpolated: json['interpolated'] as bool? ?? false,
+    traced: json['traced'] as bool? ?? true,
     lightCount: json['lightCount'] as int? ?? 0,
     bounces: json['bounces'] as int? ?? 1,
     samples: json['samples'] as int? ?? 1,
+    accumulated: json['accumulated'] as int? ?? 0,
   );
 
   final int? textureId;
@@ -44,11 +50,19 @@ class EngineStatus {
   final int outputWidth;
   final int outputHeight;
   final double gpuMilliseconds;
+
+  /// Time for a frame that actually traced, as opposed to one MetalFX
+  /// generated — those cost almost nothing and flatter the average.
+  final double traceMilliseconds;
   final String deviceName;
   final bool interpolated;
+  final bool traced;
   final int lightCount;
   final int bounces;
   final int samples;
+
+  /// Samples of the same still frame averaged so far; zero while anything moves.
+  final int accumulated;
 
   String get resolutionLabel =>
       '${renderWidth}x$renderHeight → ${outputWidth}x$outputHeight';

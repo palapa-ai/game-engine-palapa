@@ -4,7 +4,9 @@ import 'package:game_engine/game_engine.dart';
 
 void main() {
   test('cornell scene parses with its raw mesh intact', () {
-    final doc = SceneDocument.parse(File('assets/cornell.yaml').readAsStringSync());
+    final doc = SceneDocument.parse(
+      File('assets/cornell.yaml').readAsStringSync(),
+    );
     expect(doc.instances.length, doc.transforms.length);
     final teapot = doc.meshes.firstWhere((m) => m.shape == MeshShape.mesh);
     expect(teapot.vertices, isNotNull);

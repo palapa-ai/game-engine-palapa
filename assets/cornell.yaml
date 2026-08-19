@@ -10,6 +10,9 @@ camera:
   yaw: -90
   pitch: -2
   fieldOfView: 46
+  # the room is sealed, so the camera is kept inside it
+  minimum: [-13.5, 2.0, -13.5]
+  maximum: [13.5, 28.0, 52.0]
 
 sun: {intensity: 0.0, direction: [0, -1, 0], color: [0, 0, 0]}
 
@@ -20,11 +23,15 @@ sky:
 
 fog: {color: [0, 0, 0], density: 0.0, scattering: 0.0}
 
-render: {resolution: 640, bounces: 4, samples: 2, upscaler: denoised, frameGeneration: true, exposure: 1.15}
+render: {resolution: 640p, upscaled: 4k, bounces: 4, samples: 4, upscaler: denoised, frameGeneration: true, exposure: 1.15}
 
 meshes:
   box: {shape: box}
   ball: {shape: sphere, radius: 0.5, segments: 30}
+  tube: {shape: cylinder, segments: 36}
+  mirror: {shape: dish, diameter: 1, depth: 0.2, segments: 60}
+  visor: {shape: sleeve, diameter: 1, height: 1, sweep: 250, segments: 44}
+  link: {shape: ring, tube: 0.3, segments: 22}
   teapot:
     shape: mesh
     # 3192 vertices, 5832 triangles — body, lid, spout and
@@ -39,13 +46,64 @@ materials:
   light: {albedo: [0, 0, 0], roughness: 1, emissive: [18.0, 15.0, 10.4]}
   cube: {albedo: [0.68, 0.66, 0.63], roughness: 0.85}
   roseGold: {albedo: [0.88, 0.53, 0.44], roughness: 0.16, metallic: 1.0}
-  whiteDiffuse: {albedo: [0.78, 0.77, 0.75], roughness: 0.92}
+  whiteDiffuse: {albedo: [0.78, 0.77, 0.75], roughness: 0.13}
+  chrome: {albedo: [0.95, 0.96, 0.97], roughness: 0.03, metallic: 1.0}
+  steel: {albedo: [0.56, 0.57, 0.60], roughness: 0.22, metallic: 1.0}
+  brass: {albedo: [0.84, 0.66, 0.32], roughness: 0.15, metallic: 1.0}
+  housing: {albedo: [0.06, 0.07, 0.07], roughness: 0.5}
+  signalYellow: {albedo: [0.80, 0.52, 0.05], roughness: 0.42}
+  backplate: {albedo: [0.02, 0.02, 0.02], roughness: 0.7}
+  redLens: {albedo: [0.20, 0.015, 0.012], roughness: 0.10}
+  amberLens: {albedo: [0.24, 0.12, 0.010], roughness: 0.10}
+  greenLens: {albedo: [0.015, 0.19, 0.14], roughness: 0.10}
+  redLamp: {albedo: [0.30, 0.02, 0.02], roughness: 0.35, emissive: [8.0, 0.25, 0.15]}
+  amberLamp: {albedo: [0.30, 0.18, 0.02], roughness: 0.35, emissive: [8.0, 3.6, 0.3]}
+  greenLamp: {albedo: [0.03, 0.26, 0.19], roughness: 0.35, emissive: [0.35, 6.5, 3.4]}
+  dullChrome: {albedo: [0.86, 0.87, 0.88], roughness: 0.19, metallic: 1.0}
+  wax: {albedo: [0.93, 0.89, 0.79], roughness: 0.5}
+  wick: {albedo: [0.06, 0.05, 0.05], roughness: 0.95}
+  flame: {albedo: [0, 0, 0], roughness: 1, emissive: [5.2, 2.0, 0.5]}
   glass:
     albedo: [0.95, 0.96, 0.98]
     roughness: 0.02
     kind: glass
     tint: [0.90, 0.94, 0.97]
     ior: 1.52
+
+groups:
+  # A US 12-inch three-section head on a mast arm — 13.5in sections, a 5in
+  # black backplate, a tunnel visor per lens, and one aspect lit at a time.
+  # One unit is just under 8 inches, which is where these numbers come from.
+  signal:
+    - {mesh: tube, material: steel, scale: [1.9, 0.25, 1.9]}
+    - {mesh: tube, material: steel, position: [0, 0.25, 0], scale: [0.5, 24.0, 0.5]}
+    - {mesh: tube, material: steel, position: [0, 24.0, 0], rotation: [90, 0, 0], scale: [0.42, 1.35, 0.42]}
+    - {mesh: tube, material: steel, position: [0, 23.30, 1.15], scale: [0.4, 0.7, 0.4]}
+
+    - {mesh: box, material: backplate, position: [0, 20.63, 0.50], scale: [2.95, 7.05, 0.1]}
+
+    - {mesh: box, material: signalYellow, position: [0, 22.58, 1.15], scale: [1.7, 1.95, 1.15]}
+    - {mesh: box, material: signalYellow, position: [0, 20.63, 1.15], scale: [1.7, 1.95, 1.15]}
+    - {mesh: box, material: signalYellow, position: [0, 18.68, 1.15], scale: [1.7, 1.95, 1.15]}
+    - {mesh: box, material: signalYellow, position: [0, 23.56, 1.15], scale: [1.78, 0.09, 1.22]}
+    - {mesh: box, material: signalYellow, position: [0, 21.61, 1.15], scale: [1.78, 0.09, 1.22]}
+    - {mesh: box, material: signalYellow, position: [0, 19.66, 1.15], scale: [1.78, 0.09, 1.22]}
+    - {mesh: box, material: signalYellow, position: [0, 17.71, 1.15], scale: [1.78, 0.09, 1.22]}
+
+    - {mesh: tube, material: signalYellow, position: [0, 22.58, 1.72], rotation: [90, 0, 0], scale: [1.62, 0.09, 1.62]}
+    - {mesh: tube, material: redLens, position: [0, 22.58, 1.78], rotation: [90, 0, 0], scale: [1.51, 0.06, 1.51]}
+    - {mesh: tube, material: redLamp, position: [0, 22.58, 1.82], rotation: [90, 0, 0], scale: [1.47, 0.05, 1.47], blink: {period: 9, from: 5, to: 9}}
+    - {mesh: visor, material: signalYellow, position: [0, 22.60, 1.80], rotation: [96, 0, 0], scale: [1.68, 1.2, 1.68]}
+
+    - {mesh: tube, material: signalYellow, position: [0, 20.63, 1.72], rotation: [90, 0, 0], scale: [1.62, 0.09, 1.62]}
+    - {mesh: tube, material: amberLens, position: [0, 20.63, 1.78], rotation: [90, 0, 0], scale: [1.51, 0.06, 1.51]}
+    - {mesh: tube, material: amberLamp, position: [0, 20.63, 1.82], rotation: [90, 0, 0], scale: [1.47, 0.05, 1.47], blink: {period: 9, from: 4, to: 5}}
+    - {mesh: visor, material: signalYellow, position: [0, 20.65, 1.80], rotation: [96, 0, 0], scale: [1.68, 1.2, 1.68]}
+
+    - {mesh: tube, material: signalYellow, position: [0, 18.68, 1.72], rotation: [90, 0, 0], scale: [1.62, 0.09, 1.62]}
+    - {mesh: tube, material: greenLens, position: [0, 18.68, 1.78], rotation: [90, 0, 0], scale: [1.51, 0.06, 1.51]}
+    - {mesh: tube, material: greenLamp, position: [0, 18.68, 1.82], rotation: [90, 0, 0], scale: [1.47, 0.05, 1.47], blink: {period: 9, from: 0, to: 4}}
+    - {mesh: visor, material: signalYellow, position: [0, 18.70, 1.80], rotation: [96, 0, 0], scale: [1.68, 1.2, 1.68]}
 
 objects:
   # shell: floor, ceiling, back, and the two coloured walls
@@ -55,12 +113,42 @@ objects:
   - {mesh: box, material: red, position: [-15.5, 15, 0], scale: [1, 30, 30]}
   - {mesh: box, material: green, position: [15.5, 15, 0], scale: [1, 30, 30]}
 
-  # the one light in the room
-  - {mesh: box, material: light, position: [0, 29.6, -1], scale: [9, 0.4, 7]}
+  # the one light in the room, hung a foot below the ceiling on four chains
+  - {mesh: box, material: light, position: [0, 24.8, 0], scale: [7, 0.8, 9.5]}
+  - {mesh: tube, material: steel, position: [2.9, 25.2, 4.0], scale: [0.16, 0.78, 0.16], mirror: [x, z]}
+  - {mesh: link, material: steel, position: [2.9, 26.2, 4.0], rotation: [90, 0, 0], scale: [0.85, 0.85, 0.85], mirror: [x, z]}
+  - {mesh: link, material: steel, position: [2.9, 26.9, 4.0], rotation: [90, 90, 0], scale: [0.85, 0.85, 0.85], mirror: [x, z]}
+  - {mesh: link, material: steel, position: [2.9, 27.6, 4.0], rotation: [90, 0, 0], scale: [0.85, 0.85, 0.85], mirror: [x, z]}
+  - {mesh: link, material: steel, position: [2.9, 28.3, 4.0], rotation: [90, 90, 0], scale: [0.85, 0.85, 0.85], mirror: [x, z]}
+  - {mesh: link, material: steel, position: [2.9, 29.0, 4.0], rotation: [90, 0, 0], scale: [0.85, 0.85, 0.85], mirror: [x, z]}
+  - {mesh: link, material: steel, position: [2.9, 29.7, 4.0], rotation: [90, 90, 0], scale: [0.85, 0.85, 0.85], mirror: [x, z]}
 
   # glass sphere where the tall block stood
   - {mesh: ball, material: glass, position: [-5.4, 6.4, -4.5], scale: [12.8, 12.8, 12.8]}
 
   # white diffuse cube, with a rose gold teapot sitting on it
   - {mesh: box, material: whiteDiffuse, position: [5.4, 4.2, 3.5], rotation: [0, -19, 0], scale: [8.4, 8.4, 8.4]}
-  - {mesh: teapot, material: roseGold, position: [5.4, 8.4, 3.5], rotation: [0, 148, 0], scale: [4.4, 4.4, 4.4]}
+  - {mesh: teapot, material: roseGold, position: [4.3, 8.4, 2.8], rotation: [0, 148, 0], scale: [3.0, 3.0, 3.0]}
+
+  # convex safety mirror on an arm off the corner, aimed down the diagonal
+  - {mesh: tube, material: steel, position: [-14.9, 29.2, -14.9], rotation: [90, 45, 0], scale: [1.9, 0.36, 1.9]}
+  - {mesh: tube, material: steel, position: [-15.0, 29.2, -15.0], rotation: [126, 45, 0], scale: [0.45, 5.57, 0.45]}
+  - {mesh: ball, material: steel, position: [-11.814, 25.920, -11.820], scale: [0.7, 0.7, 0.7]}
+  - {mesh: mirror, material: housing, position: [-11.569, 25.670, -11.570], rotation: [-55, 45, 0], scale: [5.3, 1.5, 5.3]}
+  - {mesh: tube, material: dullChrome, position: [-11.569, 25.670, -11.570], rotation: [125, 45, 0], scale: [5.45, 0.12, 5.45]}
+  - {mesh: mirror, material: chrome, position: [-11.5, 25.6, -11.5], rotation: [125, 45, 0], scale: [5.2, 2.2, 5.2]}
+
+  # signal on a mast arm in the back right corner, cycling green, amber, red
+  - {group: signal, position: [12.6, 0, -12.6], rotation: [0, -45, 0]}
+
+  # brass holder, a thin candle in it, and a flame that never sits still
+  - {mesh: tube, material: brass, position: [8.0, 8.4, 5.5], scale: [1.7, 0.16, 1.7]}
+  - {mesh: tube, material: brass, position: [8.0, 8.56, 5.5], scale: [0.4, 0.55, 0.4]}
+  - {mesh: tube, material: brass, position: [8.0, 9.11, 5.5], scale: [0.95, 0.42, 0.95]}
+  - {mesh: tube, material: wax, position: [8.0, 9.35, 5.5], scale: [0.62, 2.0, 0.62]}
+  - {mesh: tube, material: wick, position: [8.0, 11.35, 5.5], scale: [0.08, 0.34, 0.08]}
+  - mesh: ball
+    material: flame
+    position: [8.0, 11.85, 5.5]
+    scale: [0.42, 0.95, 0.42]
+    sway: {drift: [0.08, 0.14, 0.08], speed: 4.4, pulse: 0.14, pulseSpeed: 9.5}

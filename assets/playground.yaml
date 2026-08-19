@@ -10,6 +10,8 @@ camera:
   yaw: -90
   pitch: -8
   fieldOfView: 58
+  minimum: [-44, 1.0, -32]
+  maximum: [44, 40, 60]
 
 sun:
   direction: [-0.35, -0.8, -0.45]

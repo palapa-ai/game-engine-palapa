@@ -2,7 +2,19 @@ import 'dart:typed_data';
 
 import 'package:game_engine/src/vec3.dart';
 
-enum MeshShape { box, sphere, plane, pyramid, frustum, cylinder, cone, mesh }
+enum MeshShape {
+  box,
+  sphere,
+  plane,
+  pyramid,
+  frustum,
+  cylinder,
+  cone,
+  dish,
+  ring,
+  sleeve,
+  mesh,
+}
 
 class MeshDescription {
   const MeshDescription._(
@@ -25,6 +37,17 @@ class MeshDescription {
     : this._(MeshShape.cylinder, const Vec3(1, 1, 1), segments);
   MeshDescription.cone({int segments = 24})
     : this._(MeshShape.cone, const Vec3(1, 1, 0), segments);
+  MeshDescription.dish(double diameter, double depth, {int segments = 48})
+    : this._(MeshShape.dish, Vec3(diameter, depth, 0), segments);
+  MeshDescription.ring(double diameter, double tube, {int segments = 24})
+    : this._(MeshShape.ring, Vec3(diameter, tube, 0), segments);
+
+  MeshDescription.sleeve(
+    double diameter,
+    double height, {
+    double sweep = 360,
+    int segments = 32,
+  }) : this._(MeshShape.sleeve, Vec3(diameter, height, sweep), segments);
 
   /// Geometry carried as data: interleaved position/normal triples plus a
   /// triangle index list, so a whole model can live inside a scene document.

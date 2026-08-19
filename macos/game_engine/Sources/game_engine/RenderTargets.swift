@@ -45,6 +45,13 @@ final class RenderTargets {
   let renderHeight: Int
   let outputWidth: Int
   let outputHeight: Int
+  let surfaceWidth: Int
+  let surfaceHeight: Int
+
+  /// MetalFX refuses to scale more than 3x per dimension, so a taller request
+  /// lands here first and a spatial pass carries it the rest of the way.
+  let stageWidth: Int
+  let stageHeight: Int
 
   let albedo: MTLTexture
   let normal: MTLTexture
@@ -54,25 +61,37 @@ final class RenderTargets {
   let emissive: MTLTexture
   let depth: MTLTexture
   let shaded: MTLTexture
+  let staged: MTLTexture
   let scaled: MTLTexture
   let previousScaled: MTLTexture
   let interpolated: MTLTexture
+  let accumulation: MTLTexture
   let presented: MTLTexture
 
   private let surfaces: [OutputSurface]
   private var surfaceIndex = 0
 
   init?(
-    device: MTLDevice, cache: CVMetalTextureCache, output: (width: Int, height: Int), scale: Float
+    device: MTLDevice, cache: CVMetalTextureCache, output: (width: Int, height: Int),
+    surface: (width: Int, height: Int), scale: Float, upscales: Bool
   ) {
     let outputWidth = max(output.width, 16)
     let outputHeight = max(output.height, 16)
+    let surfaceWidth = max(surface.width, 16)
+    let surfaceHeight = max(surface.height, 16)
+    self.surfaceWidth = surfaceWidth
+    self.surfaceHeight = surfaceHeight
     let renderWidth = max(Int((Float(outputWidth) * scale).rounded()), 16)
     let renderHeight = max(Int((Float(outputHeight) * scale).rounded()), 16)
     self.outputWidth = outputWidth
     self.outputHeight = outputHeight
     self.renderWidth = renderWidth
     self.renderHeight = renderHeight
+    let beyondMetalFX = outputWidth > renderWidth * 3 || outputHeight > renderHeight * 3
+    let stageWidth = beyondMetalFX ? renderWidth * 3 : outputWidth
+    let stageHeight = beyondMetalFX ? renderHeight * 3 : outputHeight
+    self.stageWidth = stageWidth
+    self.stageHeight = stageHeight
 
     func make(_ format: MTLPixelFormat, _ width: Int, _ height: Int) -> MTLTexture? {
       let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -90,10 +109,14 @@ final class RenderTargets {
       let emissive = make(Self.colorFormat, renderWidth, renderHeight),
       let depth = make(Self.depthFormat, renderWidth, renderHeight),
       let shaded = make(Self.colorFormat, renderWidth, renderHeight),
+      let staged = make(Self.colorFormat, stageWidth, stageHeight),
       let scaled = make(Self.colorFormat, outputWidth, outputHeight),
       let previousScaled = make(Self.colorFormat, outputWidth, outputHeight),
       let interpolated = make(Self.colorFormat, outputWidth, outputHeight),
-      let presented = make(Self.presentFormat, outputWidth, outputHeight)
+      let accumulation = make(
+        Self.colorFormat, upscales ? outputWidth : renderWidth,
+        upscales ? outputHeight : renderHeight),
+      let presented = make(Self.presentFormat, surfaceWidth, surfaceHeight)
     else { return nil }
 
     self.albedo = albedo
@@ -104,13 +127,15 @@ final class RenderTargets {
     self.emissive = emissive
     self.depth = depth
     self.shaded = shaded
+    self.staged = staged
     self.scaled = scaled
     self.previousScaled = previousScaled
     self.interpolated = interpolated
+    self.accumulation = accumulation
     self.presented = presented
 
     let surfaces = (0..<3).compactMap {
-      _ in OutputSurface(device: device, cache: cache, width: outputWidth, height: outputHeight)
+      _ in OutputSurface(device: device, cache: cache, width: surfaceWidth, height: surfaceHeight)
     }
     guard surfaces.count == 3 else { return nil }
     self.surfaces = surfaces

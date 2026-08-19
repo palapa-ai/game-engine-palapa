@@ -3,6 +3,7 @@ import Metal
 @available(macOS 15.0, *)
 final class GameRenderer {
   private let tracePipeline: MTLComputePipelineState
+  private let accumulatePipeline: MTLComputePipelineState
   private let presentPipeline: MTLComputePipelineState
 
   init(device: MTLDevice) throws {
@@ -10,9 +11,11 @@ final class GameRenderer {
     options.languageVersion = .version3_1
     let library = try device.makeLibrary(source: GameShaders.source, options: options)
     guard let trace = library.makeFunction(name: "traceScene"),
+      let accumulate = library.makeFunction(name: "accumulate"),
       let present = library.makeFunction(name: "present")
     else { throw GameEngineError.pipeline }
     tracePipeline = try device.makeComputePipelineState(function: trace)
+    accumulatePipeline = try device.makeComputePipelineState(function: accumulate)
     presentPipeline = try device.makeComputePipelineState(function: present)
   }
 
@@ -43,6 +46,20 @@ final class GameRenderer {
     encoder.endEncoding()
   }
 
+  func encodeAccumulate(
+    commandBuffer: MTLCommandBuffer, targets: RenderTargets, sample: MTLTexture, slot: FrameSlot
+  ) {
+    guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
+    encoder.setComputePipelineState(accumulatePipeline)
+    encoder.setTexture(sample, index: 0)
+    encoder.setTexture(targets.accumulation, index: 1)
+    encoder.setBuffer(slot.uniforms, offset: 0, index: 0)
+    dispatch(
+      encoder: encoder, pipeline: accumulatePipeline, width: targets.accumulation.width,
+      height: targets.accumulation.height)
+    encoder.endEncoding()
+  }
+
   func encodePresent(
     commandBuffer: MTLCommandBuffer, targets: RenderTargets, source: MTLTexture, slot: FrameSlot,
     surface: OutputSurface
@@ -53,8 +70,8 @@ final class GameRenderer {
     encoder.setTexture(targets.presented, index: 1)
     encoder.setBuffer(slot.uniforms, offset: 0, index: 0)
     dispatch(
-      encoder: encoder, pipeline: presentPipeline, width: targets.outputWidth,
-      height: targets.outputHeight)
+      encoder: encoder, pipeline: presentPipeline, width: targets.surfaceWidth,
+      height: targets.surfaceHeight)
     encoder.endEncoding()
 
     guard let blit = commandBuffer.makeBlitCommandEncoder() else { return }

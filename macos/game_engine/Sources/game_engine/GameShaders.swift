@@ -34,6 +34,7 @@ enum GameShaders {
       uint bounceRays;
       uint samples;
       uint lightCount;
+      uint accumulated;
     };
 
     struct InstanceMaterial {
@@ -183,6 +184,19 @@ enum GameShaders {
       float nl = saturate(dot(normal, light));
       float visibility = 1.0 / max((nv * (1.0 - k) + k) * (nl * (1.0 - k) + k) * 4.0, 1e-5);
       return distribution * visibility * nl;
+    }
+
+    static inline float3 sampleGGX(float3 normal, float roughness, thread uint &state) {
+      float alpha = max(roughness * roughness, 1e-3);
+      float u1 = randomFloat(state);
+      float u2 = randomFloat(state);
+      float phi = 2.0 * M_PI_F * u1;
+      float cosTheta = sqrt((1.0 - u2) / (1.0 + (alpha * alpha - 1.0) * u2));
+      float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+      float3 tangent = orthonormal(normal);
+      float3 bitangent = cross(normal, tangent);
+      return normalize(tangent * (sinTheta * cos(phi)) + bitangent * (sinTheta * sin(phi))
+                     + normal * cosTheta);
     }
 
     static inline float schlick(float cosine, float reflectance) {
@@ -336,10 +350,12 @@ enum GameShaders {
 
       float2 uv = (float2(pixel) + 0.5 + uniforms.jitter) / uniforms.renderSize;
       float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+      float4 entry = uniforms.inverseViewProjection * float4(ndc, 0.0, 1.0);
       float4 target = uniforms.inverseViewProjection * float4(ndc, 1.0, 1.0);
-      float3 origin = uniforms.cameraPosition;
+      float3 origin = entry.xyz / entry.w;
       float3 direction = normalize(target.xyz / target.w - origin);
       float3 primaryDirection = direction;
+      float3 primaryOrigin = origin;
 
       uint state = hash(pixel.x * 1973u + pixel.y * 9277u + uniforms.frameIndex * 26699u);
       uint sampleCount = max(uniforms.samples, 1u);
@@ -350,16 +366,19 @@ enum GameShaders {
       for (uint sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex) {
       float3 radiance = float3(0.0);
       float3 throughput = float3(1.0);
+      bool sampledSpecular = true;
       float2 sampleJitter = sampleIndex == 0
           ? float2(0.0)
           : float2(randomFloat(state), randomFloat(state)) - 0.5;
       float2 sampleUV = (float2(pixel) + 0.5 + uniforms.jitter + sampleJitter)
                       / uniforms.renderSize;
       float2 sampleNDC = float2(sampleUV.x * 2.0 - 1.0, 1.0 - sampleUV.y * 2.0);
+      float4 sampleEntry = uniforms.inverseViewProjection * float4(sampleNDC, 0.0, 1.0);
       float4 sampleTarget = uniforms.inverseViewProjection * float4(sampleNDC, 1.0, 1.0);
-      origin = uniforms.cameraPosition;
+      origin = sampleEntry.xyz / sampleEntry.w;
       direction = normalize(sampleTarget.xyz / sampleTarget.w - origin);
       primaryDirection = direction;
+      primaryOrigin = origin;
 
       for (uint depth = 0; depth < 5u; ++depth) {
         intersector<instancing, triangle_data> tracer;
@@ -410,12 +429,13 @@ enum GameShaders {
           wroteSurface = true;
         }
 
-        radiance += throughput * material.emissive;
+        if (sampledSpecular) radiance += throughput * material.emissive;
 
         if (material.kind == kindMirror) {
           throughput *= materialTint(material, uniforms.time);
           direction = reflect(direction, normal);
           origin = surface.position + normal * 3e-3;
+          sampledSpecular = true;
           continue;
         }
 
@@ -433,6 +453,7 @@ enum GameShaders {
             direction = normalize(refracted);
             origin = surface.position - normal * 3e-3;
           }
+          sampledSpecular = true;
           continue;
         }
 
@@ -444,19 +465,32 @@ enum GameShaders {
         radiance += throughput * directLight(scene, surface.position, normal, view, albedo,
                                              specularColor, roughness, uniforms, state);
 
-        float fresnel = schlick(saturate(dot(view, normal)), material.metallic > 0.5 ? 0.6 : 0.04);
-        if (roughness < 0.3 && randomFloat(state) < fresnel) {
+        float reflectance = mix(0.04, 0.9, material.metallic);
+        float fresnel = schlick(saturate(dot(view, normal)), reflectance);
+        origin = surface.position + normal * 3e-3;
+
+        if (randomFloat(state) < fresnel) {
+          float3 halfway = sampleGGX(normal, roughness, state);
+          float3 bounce = reflect(direction, halfway);
+          if (dot(bounce, normal) <= 0.0) break;
           throughput *= specularColor;
-          direction = normalize(reflect(direction, normal)
-                              + cosineHemisphere(normal, state) * roughness * 0.6);
-          origin = surface.position + normal * 3e-3;
-          continue;
+          direction = bounce;
+          sampledSpecular = true;
+        } else {
+          throughput *= albedo;
+          direction = cosineHemisphere(normal, state);
+          sampledSpecular = false;
         }
 
         if (depth + 1 >= uniforms.bounceRays + 1u) break;
-        throughput *= albedo;
-        direction = cosineHemisphere(normal, state);
-        origin = surface.position + normal * 3e-3;
+
+        // Russian roulette past the first couple of vertices: terminate dim
+        // paths at random and scale the survivors so the estimate stays fair.
+        if (depth >= 1u) {
+          float survival = clamp(max(throughput.x, max(throughput.y, throughput.z)), 0.05, 1.0);
+          if (randomFloat(state) > survival) break;
+          throughput /= survival;
+        }
       }
 
       total += radiance;
@@ -474,7 +508,7 @@ enum GameShaders {
         float3 inscatter = float3(0.0);
         for (uint step = 0; step < 6u; ++step) {
           float distance = segment * (float(step) + randomFloat(state));
-          float3 point = uniforms.cameraPosition + primaryDirection * distance;
+          float3 point = primaryOrigin + primaryDirection * distance;
           float3 sun = transmittance(scene, point, sunDirection, 1e5, uniforms)
                      * uniforms.sunColor * uniforms.sunIntensity;
           inscatter += sun * exp(-distance * uniforms.fogDensity);
@@ -505,6 +539,22 @@ enum GameShaders {
 
     static inline float3 encodeSRGB(float3 color) {
       return select(12.92 * color, 1.055 * pow(color, 1.0 / 2.4) - 0.055, color > 0.0031308);
+    }
+
+    // Progressive refinement while nothing moves: every traced frame is one more
+    // sample of the same picture, so they average into an image no single frame
+    // has the ray budget for.
+    kernel void accumulate(
+        texture2d<float, access::read> sample [[texture(0)]],
+        texture2d<float, access::read_write> history [[texture(1)]],
+        constant FrameUniforms &uniforms [[buffer(0)]],
+        uint2 pixel [[thread_position_in_grid]]) {
+      if (pixel.x >= history.get_width() || pixel.y >= history.get_height()) return;
+      float4 current = sample.read(pixel);
+      float4 blended = uniforms.accumulated == 0u
+          ? current
+          : mix(history.read(pixel), current, 1.0 / float(uniforms.accumulated + 1u));
+      history.write(blended, pixel);
     }
 
     kernel void present(

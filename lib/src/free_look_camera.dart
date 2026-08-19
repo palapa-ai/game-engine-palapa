@@ -14,18 +14,28 @@ class FreeLookCamera {
   static const _damping = 12.0;
 
   Vec3 _position = const Vec3(0, 14, 86);
+  Vec3? _minimum;
+  Vec3? _maximum;
   Vec3 _velocity = Vec3.zero;
   double _yaw = -math.pi / 2;
   double _pitch = -0.12;
   double _fieldOfView = 1.15;
+  Projection projection = Projection.perspective;
+  bool _moved = true;
+  bool _looked = false;
 
   Vec3 get position => _position;
   double get speed => _velocity.length;
+
+  /// Whether the last [advance] changed where the camera looks from or at —
+  /// what tells a renderer it may stop re-drawing and start refining.
+  bool get moved => _moved;
 
   GameCamera get camera => GameCamera(
     position: _position,
     target: _position + _forward,
     fieldOfView: _fieldOfView,
+    projection: projection,
   );
 
   Vec3 get _forward => Vec3(
@@ -36,7 +46,27 @@ class FreeLookCamera {
 
   Vec3 get _right => Vec3(-math.sin(_yaw), 0, math.cos(_yaw));
 
+  /// Keeps the camera inside the world it was given — without this you walk
+  /// through a wall of a sealed room and the render goes black.
+  void constrainTo(Vec3? minimum, Vec3? maximum) {
+    _minimum = minimum;
+    _maximum = maximum;
+    _position = _clamped(_position);
+  }
+
+  Vec3 _clamped(Vec3 position) {
+    final minimum = _minimum;
+    final maximum = _maximum;
+    if (minimum == null || maximum == null) return position;
+    return Vec3(
+      position.x.clamp(minimum.x, maximum.x),
+      position.y.clamp(minimum.y, maximum.y),
+      position.z.clamp(minimum.z, maximum.z),
+    );
+  }
+
   void placeAt(GameCamera start) {
+    _moved = true;
     _position = start.position;
     final forward = (start.target - start.position).normalized;
     _pitch = math.asin(forward.y.clamp(-1.0, 1.0));
@@ -45,6 +75,7 @@ class FreeLookCamera {
   }
 
   void look(Offset delta) {
+    _looked = _looked || delta != Offset.zero;
     _yaw += delta.dx * _lookSensitivity;
     _pitch = (_pitch - delta.dy * _lookSensitivity).clamp(
       -_pitchLimit,
@@ -53,10 +84,13 @@ class FreeLookCamera {
   }
 
   void advance(double deltaSeconds, Set<Movement> held) {
+    final start = _position;
     final target = _target(held);
     final blend = math.min(1.0, deltaSeconds * _damping);
     _velocity = _velocity + (target - _velocity) * blend;
-    _position = _position + _velocity * deltaSeconds;
+    _position = _clamped(_position + _velocity * deltaSeconds);
+    _moved = _looked || held.isNotEmpty || (_position - start).length > 1e-5;
+    _looked = false;
   }
 
   Vec3 _target(Set<Movement> held) {

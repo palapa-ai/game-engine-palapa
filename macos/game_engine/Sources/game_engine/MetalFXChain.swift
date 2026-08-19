@@ -28,8 +28,8 @@ private final class DenoisedUpscaler {
     descriptor.outputTextureFormat = RenderTargets.colorFormat
     descriptor.inputWidth = targets.renderWidth
     descriptor.inputHeight = targets.renderHeight
-    descriptor.outputWidth = targets.outputWidth
-    descriptor.outputHeight = targets.outputHeight
+    descriptor.outputWidth = targets.stageWidth
+    descriptor.outputHeight = targets.stageHeight
     descriptor.isAutoExposureEnabled = true
     guard let scaler = descriptor.makeTemporalDenoisedScaler(device: device) else { return nil }
     self.scaler = scaler
@@ -117,6 +117,7 @@ final class MetalFXChain {
   private var temporal: (any MTLFXTemporalScaler)?
   private var spatial: (any MTLFXSpatialScaler)?
   private var interpolatorBox: AnyObject?
+  private var finisher: (any MTLFXSpatialScaler)?
 
   private(set) var upscaling: Upscaling = .off
   private(set) var interpolates = false
@@ -146,6 +147,12 @@ final class MetalFXChain {
       }
     }
 
+    if upscaling != .off,
+      targets.stageWidth != targets.outputWidth || targets.stageHeight != targets.outputHeight
+    {
+      finisher = MetalFXChain.makeFinisher(device: device, targets: targets)
+    }
+
     guard settings.frameInterpolation, upscaling != .off else { return }
     if #available(macOS 26.0, *) {
       let scaler = (denoised as? DenoisedUpscaler)?.scaler as? any MTLFXFrameInterpolatableScaler
@@ -156,6 +163,20 @@ final class MetalFXChain {
     }
   }
 
+  private static func makeFinisher(device: MTLDevice, targets: RenderTargets)
+    -> (any MTLFXSpatialScaler)?
+  {
+    let descriptor = MTLFXSpatialScalerDescriptor()
+    descriptor.colorTextureFormat = RenderTargets.colorFormat
+    descriptor.outputTextureFormat = RenderTargets.colorFormat
+    descriptor.inputWidth = targets.stageWidth
+    descriptor.inputHeight = targets.stageHeight
+    descriptor.outputWidth = targets.outputWidth
+    descriptor.outputHeight = targets.outputHeight
+    descriptor.colorProcessingMode = .perceptual
+    return descriptor.makeSpatialScaler(device: device)
+  }
+
   private static func makeSpatialScaler(device: MTLDevice, targets: RenderTargets)
     -> (any MTLFXSpatialScaler)?
   {
@@ -164,8 +185,8 @@ final class MetalFXChain {
     descriptor.outputTextureFormat = RenderTargets.colorFormat
     descriptor.inputWidth = targets.renderWidth
     descriptor.inputHeight = targets.renderHeight
-    descriptor.outputWidth = targets.outputWidth
-    descriptor.outputHeight = targets.outputHeight
+    descriptor.outputWidth = targets.stageWidth
+    descriptor.outputHeight = targets.stageHeight
     descriptor.colorProcessingMode = .perceptual
     return descriptor.makeSpatialScaler(device: device)
   }
@@ -180,13 +201,27 @@ final class MetalFXChain {
     descriptor.outputTextureFormat = RenderTargets.colorFormat
     descriptor.inputWidth = targets.renderWidth
     descriptor.inputHeight = targets.renderHeight
-    descriptor.outputWidth = targets.outputWidth
-    descriptor.outputHeight = targets.outputHeight
+    descriptor.outputWidth = targets.stageWidth
+    descriptor.outputHeight = targets.stageHeight
     descriptor.isAutoExposureEnabled = true
     return descriptor.makeTemporalScaler(device: device)
   }
 
   func encodeUpscale(
+    commandBuffer: MTLCommandBuffer, targets: RenderTargets, output: MTLTexture,
+    jitter: SIMD2<Float>, camera: FrameCamera, reset: Bool
+  ) {
+    let staged = finisher == nil ? output : targets.staged
+    encodeScaler(
+      commandBuffer: commandBuffer, targets: targets, output: staged, jitter: jitter,
+      camera: camera, reset: reset)
+    guard let finisher else { return }
+    finisher.colorTexture = targets.staged
+    finisher.outputTexture = output
+    finisher.encode(commandBuffer: commandBuffer)
+  }
+
+  private func encodeScaler(
     commandBuffer: MTLCommandBuffer, targets: RenderTargets, output: MTLTexture,
     jitter: SIMD2<Float>, camera: FrameCamera, reset: Bool
   ) {

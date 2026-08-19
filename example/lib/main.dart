@@ -12,6 +12,7 @@ class CityWalkApp extends StatelessWidget {
   Widget build(BuildContext context) => WidgetsApp(
     color: const Color(0xFF000000),
     title: 'palapa-game-engine',
+    debugShowCheckedModeBanner: false,
     builder: (context, _) => const _Game(),
   );
 }
@@ -48,37 +49,57 @@ class _GameState extends State<_Game> {
     focusNode: _focus,
     autofocus: true,
     onKeyEvent: (_, event) => _walk.handleKey(event),
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanDown: (_) => _focus.requestFocus(),
-      onPanUpdate: (details) => _walk.look(details.delta),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GameSurface(
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        // Click the world to take the mouse, escape or losing focus to get it
+        // back — the contract every windowed game keeps.
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) {
+            _focus.requestFocus();
+            _walk.setCaptured(true);
+          },
+          onPanDown: (_) => _focus.requestFocus(),
+          onPanUpdate: (details) => _walk.look(details.delta),
+          child: GameSurface(
             textureId: _walk.textureId,
             onResize: (size) =>
                 _walk.resize(size, MediaQuery.devicePixelRatioOf(context)),
           ),
-          Align(
-            alignment: Alignment.bottomRight,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
+        ),
+        Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            // The panel sits above the world detector and swallows its own
+            // clicks, so tapping a setting never grabs the mouse.
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) {},
               child: Toggles(
                 settings: _walk.settings,
                 status: _walk.status,
+                fps: _walk.fps,
+                generatedFps: _walk.generatedFps,
+                rayMode: _walk.rayMode,
+                totalRays: _walk.totalRays,
+                onRays: _walk.cycleRayMode,
                 onScale: _walk.cycleResolution,
+                projection: _walk.projection,
+                onProjection: _walk.cycleProjection,
+                onUpscaled: _walk.cycleUpscaled,
                 onUpscaler: _walk.cycleUpscaler,
-                onFrameGen: _walk.toggleFrameGen,
+                onFrameGen: (_) => _walk.toggleFrameGen(),
                 onBounces: _walk.cycleBounces,
                 onSamples: _walk.cycleSamples,
-                onVolumetrics: _walk.toggleVolumetrics,
-                onSoftShadows: _walk.toggleSoftShadows,
+                targetRate: _walk.targetRate,
+                onFrameRate: _walk.cycleFrameRate,
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
 }

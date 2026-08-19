@@ -24,6 +24,7 @@ struct FrameUniforms {
   var bounceRays: UInt32 = 1
   var samples: UInt32 = 1
   var lightCount: UInt32 = 0
+  var accumulated: UInt32 = 0
 }
 
 enum Upscaler: String {
@@ -35,22 +36,20 @@ enum Upscaler: String {
 
 struct RenderSettings {
   var renderWidth = 640
+  var outputWidth = 1920
   var bounceRays: UInt32 = 2
   var samples: UInt32 = 1
   var upscaler = Upscaler.denoised
   var frameInterpolation = false
-  var volumetrics = true
-  var softShadows = true
   var exposure: Float = 1.0
 
   init(json: [String: Any]) {
     renderWidth = json["renderWidth"] as? Int ?? 640
+    outputWidth = json["outputWidth"] as? Int ?? 1920
     bounceRays = UInt32(json["bounceRays"] as? Int ?? 2)
     samples = UInt32(max(json["samples"] as? Int ?? 1, 1))
     upscaler = Upscaler(rawValue: json["upscaler"] as? String ?? "denoised") ?? .denoised
     frameInterpolation = json["frameInterpolation"] as? Bool ?? false
-    volumetrics = json["volumetrics"] as? Bool ?? true
-    softShadows = json["softShadows"] as? Bool ?? true
     exposure = Float(json["exposure"] as? Double ?? 1.0)
   }
 

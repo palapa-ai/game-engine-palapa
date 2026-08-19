@@ -18,7 +18,7 @@ class GameFrame {
 
   Map<String, dynamic> toJson() => {
     'view': Float32List.fromList(camera.view.storage),
-    'projection': Float32List.fromList(camera.projection(aspectRatio).storage),
+    'projection': Float32List.fromList(camera.clipMatrix(aspectRatio).storage),
     'transforms': _packedTransforms,
     'fieldOfView': camera.fieldOfView,
     'near': camera.near,
