@@ -65,6 +65,7 @@ final class RenderTargets {
   let scaled: MTLTexture
   let previousScaled: MTLTexture
   let interpolated: MTLTexture
+  let accumulation: MTLTexture
   let presented: MTLTexture
 
   private let surfaces: [OutputSurface]
@@ -72,7 +73,7 @@ final class RenderTargets {
 
   init?(
     device: MTLDevice, cache: CVMetalTextureCache, output: (width: Int, height: Int),
-    surface: (width: Int, height: Int), scale: Float
+    surface: (width: Int, height: Int), scale: Float, upscales: Bool
   ) {
     let outputWidth = max(output.width, 16)
     let outputHeight = max(output.height, 16)
@@ -112,6 +113,9 @@ final class RenderTargets {
       let scaled = make(Self.colorFormat, outputWidth, outputHeight),
       let previousScaled = make(Self.colorFormat, outputWidth, outputHeight),
       let interpolated = make(Self.colorFormat, outputWidth, outputHeight),
+      let accumulation = make(
+        Self.colorFormat, upscales ? outputWidth : renderWidth,
+        upscales ? outputHeight : renderHeight),
       let presented = make(Self.presentFormat, surfaceWidth, surfaceHeight)
     else { return nil }
 
@@ -127,6 +131,7 @@ final class RenderTargets {
     self.scaled = scaled
     self.previousScaled = previousScaled
     self.interpolated = interpolated
+    self.accumulation = accumulation
     self.presented = presented
 
     let surfaces = (0..<3).compactMap {

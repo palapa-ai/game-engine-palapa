@@ -42,6 +42,12 @@ final class GameEngine {
   private var traceMilliseconds = 0.0
   private var elapsed: Float = 0
 
+  /// Where refinement stops paying for itself: past this the average barely
+  /// moves, so the tracer goes quiet and the last image is simply re-presented.
+  private static let convergedSamples: UInt32 = 512
+  private var accumulated: UInt32 = 0
+  private var lastTransforms: [simd_float4x4] = []
+
   init() throws {
     guard let device = MTLCreateSystemDefaultDevice(), device.supportsRaytracing,
       let queue = device.makeCommandQueue()
@@ -67,13 +73,16 @@ final class GameEngine {
       let targets = RenderTargets(
         device: device, cache: textureCache, output: (outputWidth, outputHeight),
         surface: (width, height),
-        scale: min(Float(settings.renderWidth) / Float(max(outputWidth, 1)), 1.0))
+        scale: min(Float(settings.renderWidth) / Float(max(outputWidth, 1)), 1.0),
+        upscales: settings.upscaler != .off)
     else { throw GameEngineError.targets }
     self.targets = targets
     chain = MetalFXChain(device: device, targets: targets, settings: settings)
     lastScaled = nil
     pendingScaled = nil
     historyReset = true
+    accumulated = 0
+    lastTransforms = []
     if let json = sceneJSON { load(sceneJSON: json) }
   }
 
@@ -83,6 +92,8 @@ final class GameEngine {
     sceneJSON = json
     scene = SceneResources(device: device, queue: queue, scene: GameScene(json: json))
     historyReset = true
+    accumulated = 0
+    lastTransforms = []
     return scene != nil
   }
 
@@ -99,6 +110,7 @@ final class GameEngine {
       "lightCount": scene?.lightCount ?? 0,
       "bounces": Int(settings.bounceRays),
       "samples": Int(settings.samples),
+      "accumulated": Int(accumulated),
       "deviceName": device.name,
     ]
   }
@@ -114,6 +126,16 @@ final class GameEngine {
 
     let jitter = chain.upscaling == .off ? SIMD2<Float>(0, 0) : haltonJitter(frameIndex)
     let viewProjection = submission.projection * submission.view
+
+    // Nothing moved, so this frame is another sample of the last one rather
+    // than a new picture: keep tracing it and average the results.
+    let still =
+      !historyReset && viewProjection == previousViewProjection
+      && submission.transforms == lastTransforms
+    accumulated = still ? min(accumulated &+ 1, Self.convergedSamples) : 0
+    let accumulating = accumulated > 0
+    let converged = accumulated >= Self.convergedSamples
+    if accumulating { pendingScaled = nil }
 
     var uniforms = FrameUniforms()
     uniforms.viewProjection = viewProjection
@@ -138,6 +160,7 @@ final class GameEngine {
     uniforms.bounceRays = max(settings.bounceRays, 1)
     uniforms.samples = max(settings.samples, 1)
     uniforms.lightCount = UInt32(scene.lightCount)
+    uniforms.accumulated = accumulating ? accumulated - 1 : 0
     slot.uniforms.contents().copyMemory(
       from: &uniforms, byteCount: MemoryLayout<FrameUniforms>.stride)
 
@@ -146,11 +169,14 @@ final class GameEngine {
       return status
     }
 
-    let holdFrame = chain.interpolates && frameIndex % 2 == 1 && pendingScaled != nil
+    let holdFrame =
+      chain.interpolates && frameIndex % 2 == 1 && pendingScaled != nil && !accumulating
     var presented = targets.shaded
     var interpolated = false
 
-    if holdFrame, let pending = pendingScaled {
+    if converged {
+      presented = targets.accumulation
+    } else if holdFrame, let pending = pendingScaled {
       presented = pending
       pendingScaled = nil
     } else {
@@ -178,13 +204,19 @@ final class GameEngine {
         }
         lastScaled = current
       }
+
+      if accumulating {
+        renderer.encodeAccumulate(
+          commandBuffer: commandBuffer, targets: targets, sample: presented, slot: slot)
+        presented = targets.accumulation
+      }
     }
 
     let surface = targets.nextSurface()
     renderer.encodePresent(
       commandBuffer: commandBuffer, targets: targets, source: presented, slot: slot,
       surface: surface)
-    let traced = !holdFrame
+    let traced = !holdFrame && !converged
     commandBuffer.addCompletedHandler { [weak self] buffer in
       guard let self else { return }
       let elapsed = (buffer.gpuEndTime - buffer.gpuStartTime) * 1000
@@ -196,7 +228,8 @@ final class GameEngine {
     commandBuffer.commit()
 
     previousViewProjection = viewProjection
-    elapsed += submission.camera.deltaTime
+    lastTransforms = submission.transforms
+    if !accumulating { elapsed += submission.camera.deltaTime }
     frameIndex &+= 1
     historyReset = false
 

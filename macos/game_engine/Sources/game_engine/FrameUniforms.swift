@@ -24,6 +24,7 @@ struct FrameUniforms {
   var bounceRays: UInt32 = 1
   var samples: UInt32 = 1
   var lightCount: UInt32 = 0
+  var accumulated: UInt32 = 0
 }
 
 enum Upscaler: String {

@@ -170,7 +170,9 @@ class CityWalk extends ChangeNotifier {
           }
         });
 
-    _elapsed += deltaSeconds;
+    // Standing still leaves the scene where it is, so every further frame is
+    // another sample of one picture rather than the next picture.
+    if (_camera.moved) _elapsed += deltaSeconds;
     _sinceReadout += deltaSeconds;
     if (_sinceReadout < 0.5) return;
     fps = _traced / _sinceReadout;

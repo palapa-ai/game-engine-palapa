@@ -17,6 +17,7 @@ class EngineStatus {
     required this.lightCount,
     required this.bounces,
     required this.samples,
+    required this.accumulated,
   });
 
   factory EngineStatus.fromJson(Map<String, dynamic> json) => EngineStatus(
@@ -38,6 +39,7 @@ class EngineStatus {
     lightCount: json['lightCount'] as int? ?? 0,
     bounces: json['bounces'] as int? ?? 1,
     samples: json['samples'] as int? ?? 1,
+    accumulated: json['accumulated'] as int? ?? 0,
   );
 
   final int? textureId;
@@ -58,6 +60,9 @@ class EngineStatus {
   final int lightCount;
   final int bounces;
   final int samples;
+
+  /// Samples of the same still frame averaged so far; zero while anything moves.
+  final int accumulated;
 
   String get resolutionLabel =>
       '${renderWidth}x$renderHeight → ${outputWidth}x$outputHeight';

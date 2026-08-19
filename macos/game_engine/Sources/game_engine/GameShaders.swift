@@ -34,6 +34,7 @@ enum GameShaders {
       uint bounceRays;
       uint samples;
       uint lightCount;
+      uint accumulated;
     };
 
     struct InstanceMaterial {
@@ -538,6 +539,22 @@ enum GameShaders {
 
     static inline float3 encodeSRGB(float3 color) {
       return select(12.92 * color, 1.055 * pow(color, 1.0 / 2.4) - 0.055, color > 0.0031308);
+    }
+
+    // Progressive refinement while nothing moves: every traced frame is one more
+    // sample of the same picture, so they average into an image no single frame
+    // has the ray budget for.
+    kernel void accumulate(
+        texture2d<float, access::read> sample [[texture(0)]],
+        texture2d<float, access::read_write> history [[texture(1)]],
+        constant FrameUniforms &uniforms [[buffer(0)]],
+        uint2 pixel [[thread_position_in_grid]]) {
+      if (pixel.x >= history.get_width() || pixel.y >= history.get_height()) return;
+      float4 current = sample.read(pixel);
+      float4 blended = uniforms.accumulated == 0u
+          ? current
+          : mix(history.read(pixel), current, 1.0 / float(uniforms.accumulated + 1u));
+      history.write(blended, pixel);
     }
 
     kernel void present(

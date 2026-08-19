@@ -73,6 +73,11 @@ class Toggles extends StatelessWidget {
             value: '${_padded(status?.traceMilliseconds ?? 0, 2)} ms',
             reading: true,
           ),
+          _Line(
+            label: 'accumulated',
+            value: '${status?.accumulated ?? 0} samples',
+            reading: true,
+          ),
           const SizedBox(height: 7),
           _Line(label: '', value: projection.label, onStep: onProjection),
           _Line(

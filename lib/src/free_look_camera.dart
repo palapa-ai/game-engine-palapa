@@ -21,9 +21,15 @@ class FreeLookCamera {
   double _pitch = -0.12;
   double _fieldOfView = 1.15;
   Projection projection = Projection.perspective;
+  bool _moved = true;
+  bool _looked = false;
 
   Vec3 get position => _position;
   double get speed => _velocity.length;
+
+  /// Whether the last [advance] changed where the camera looks from or at —
+  /// what tells a renderer it may stop re-drawing and start refining.
+  bool get moved => _moved;
 
   GameCamera get camera => GameCamera(
     position: _position,
@@ -60,6 +66,7 @@ class FreeLookCamera {
   }
 
   void placeAt(GameCamera start) {
+    _moved = true;
     _position = start.position;
     final forward = (start.target - start.position).normalized;
     _pitch = math.asin(forward.y.clamp(-1.0, 1.0));
@@ -68,6 +75,7 @@ class FreeLookCamera {
   }
 
   void look(Offset delta) {
+    _looked = _looked || delta != Offset.zero;
     _yaw += delta.dx * _lookSensitivity;
     _pitch = (_pitch - delta.dy * _lookSensitivity).clamp(
       -_pitchLimit,
@@ -76,10 +84,13 @@ class FreeLookCamera {
   }
 
   void advance(double deltaSeconds, Set<Movement> held) {
+    final start = _position;
     final target = _target(held);
     final blend = math.min(1.0, deltaSeconds * _damping);
     _velocity = _velocity + (target - _velocity) * blend;
     _position = _clamped(_position + _velocity * deltaSeconds);
+    _moved = _looked || held.isNotEmpty || (_position - start).length > 1e-5;
+    _looked = false;
   }
 
   Vec3 _target(Set<Movement> held) {
