@@ -17,11 +17,11 @@ enum Resolution {
 
 class RenderSettings {
   const RenderSettings({
-    this.resolution = Resolution.p640,
-    this.requestedUpscale = Resolution.p1080,
+    this.resolution = .p640,
+    this.requestedUpscale = .p1080,
     this.bounceRays = 2,
     this.samples = 1,
-    this.upscaler = Upscaler.denoised,
+    this.upscaler = .denoised,
     this.frameInterpolation = false,
     this.exposure = 1.0,
   });
@@ -42,11 +42,7 @@ class RenderSettings {
 
   /// Native, then the two sizes worth asking MetalFX for.
   Iterable<Resolution> get upscales =>
-      <Resolution>{
-        resolution,
-        Resolution.p1080,
-        Resolution.k4,
-      }.where((size) => size.width >= resolution.width);
+      <Resolution>{resolution, .p1080, .k4}.where((size) => size.width >= resolution.width);
 
   RenderSettings copyWith({
     Resolution? resolution,

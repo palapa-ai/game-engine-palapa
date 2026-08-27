@@ -24,7 +24,7 @@ class EngineStatus {
     textureId: json['textureId'] as int?,
     upscaling: UpscalingMode.values.firstWhere(
       (mode) => mode.name == json['upscaling'],
-      orElse: () => UpscalingMode.off,
+      orElse: () => .off,
     ),
     frameInterpolation: json['frameInterpolation'] as bool? ?? false,
     renderWidth: json['renderWidth'] as int? ?? 0,

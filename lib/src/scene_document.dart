@@ -176,7 +176,7 @@ class SceneDocument {
     emissive: _color(json['emissive']) ?? Vec3.zero,
     kind: MaterialKind.values.firstWhere(
       (kind) => kind.name == json['kind'],
-      orElse: () => MaterialKind.opaque,
+      orElse: () => .opaque,
     ),
     tint: _color(json['tint']) ?? const Vec3(1, 1, 1),
     ior: _number(json['ior']) ?? 1.45,
@@ -219,13 +219,13 @@ class SceneDocument {
   }
 
   static RenderSettings _settings(YamlMap? json) => RenderSettings(
-    resolution: _resolution(json?['resolution'], Resolution.p640),
-    requestedUpscale: _resolution(json?['upscaled'], Resolution.p1080),
+    resolution: _resolution(json?['resolution'], .p640),
+    requestedUpscale: _resolution(json?['upscaled'], .p1080),
     bounceRays: json?['bounces'] as int? ?? 2,
     samples: json?['samples'] as int? ?? 1,
     upscaler: Upscaler.values.firstWhere(
       (mode) => mode.name == json?['upscaler'],
-      orElse: () => Upscaler.denoised,
+      orElse: () => .denoised,
     ),
     frameInterpolation: json?['frameGeneration'] as bool? ?? true,
     exposure: _number(json?['exposure']) ?? 1,

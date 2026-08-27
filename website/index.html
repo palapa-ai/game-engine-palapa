@@ -223,12 +223,11 @@
     <div>
       <h1>Hardware <span class="rays">ray&nbsp;tracing</span>, inside Flutter.</h1>
       <p class="lede">
-        A Metal-native real-time renderer for macOS. A raster G-buffer feeds
-        <b>hardware ray tracing</b>, <b>MetalFX</b> upscales and denoises,
-        <b>frame interpolation</b> fills in every other frame — and the finished
-        picture lands in a Flutter <b>Texture</b>, compositing with ordinary
-        widgets. Scene, camera and simulation stay in Dart. Swift owns Metal
-        and nothing else.
+        A small real-time ray-traced game engine for Flutter — <b>120 fps</b>
+        on Apple silicon. A raster G-buffer feeds <b>hardware ray tracing</b>,
+        <b>MetalFX</b> upscales and denoises, and <b>frame generation</b> fills
+        in every other frame. The picture lands in a Flutter <b>Texture</b>;
+        Dart owns the world, Swift owns Metal and nothing else.
       </p>
       <div class="cta-row">
         <a class="cta" href="https://github.com/palapa-ai/game-engine-palapa">VIEW ON GITHUB</a>
@@ -243,9 +242,8 @@
       </div>
       <p class="caption">
         This Cornell box is being <em>path traced in your browser</em>, one
-        sample per frame, in JavaScript. Hold still and it refines — exactly
-        how the engine behaves, except the engine does it in hardware,
-        per-pixel, at native speed.
+        sample per frame. Hold still and it refines — the engine behaves the
+        same, in hardware, at native speed.
       </p>
     </div>
   </div>
@@ -270,23 +268,21 @@
     <div class="features">
       <div class="feature">
         <h3>Real rays</h3>
-        <p>Shadows and sky-lit indirect light come from
-        <code>MTLAccelerationStructure</code>, with the instance structure
-        rebuilt every frame — every object moves freely. Stand still and the
-        clock holds, so the engine stops re-drawing the frame and starts
-        refining it.</p>
+        <p>Shadows and indirect light come from
+        <code>MTLAccelerationStructure</code>, rebuilt every frame so
+        everything moves freely. Stand still and the engine stops re-drawing
+        and starts refining.</p>
       </div>
       <div class="feature">
         <h3>Frame generation</h3>
-        <p>Renders low, finishes high: MetalFX temporal upscaling (denoised on
-        macOS 26+) reconstructs the image, and the MetalFX frame interpolator
-        generates every other frame outright.</p>
+        <p>Renders low, finishes high: MetalFX temporal upscaling
+        reconstructs the image, and the frame interpolator generates every
+        other frame — 120 fps.</p>
       </div>
       <div class="feature">
         <h3>Dart owns the world</h3>
-        <p>Meshes, materials, cameras and per-frame transforms are plain Dart;
-        whole scenes load from YAML. The frame composites as a Flutter
-        <code>Texture</code>, so the viewport is just another widget.</p>
+        <p>Meshes, materials and cameras are plain Dart or YAML; the
+        viewport is just a widget.</p>
       </div>
     </div>
   </div>

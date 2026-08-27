@@ -6,20 +6,20 @@ import 'package:game_engine/game_engine.dart';
 import 'package:palapa_game_engine/toggles.dart';
 
 class CityWalk extends ChangeNotifier {
-  static final _bindings = {
-    LogicalKeyboardKey.keyW: Movement.forward,
-    LogicalKeyboardKey.arrowUp: Movement.forward,
-    LogicalKeyboardKey.keyS: Movement.back,
-    LogicalKeyboardKey.arrowDown: Movement.back,
-    LogicalKeyboardKey.keyA: Movement.left,
-    LogicalKeyboardKey.arrowLeft: Movement.left,
-    LogicalKeyboardKey.keyD: Movement.right,
-    LogicalKeyboardKey.arrowRight: Movement.right,
-    LogicalKeyboardKey.space: Movement.up,
-    LogicalKeyboardKey.controlLeft: Movement.down,
-    LogicalKeyboardKey.controlRight: Movement.down,
-    LogicalKeyboardKey.shiftLeft: Movement.sprint,
-    LogicalKeyboardKey.shiftRight: Movement.sprint,
+  static final _bindings = <LogicalKeyboardKey, Movement>{
+    .keyW: .forward,
+    .arrowUp: .forward,
+    .keyS: .back,
+    .arrowDown: .back,
+    .keyA: .left,
+    .arrowLeft: .left,
+    .keyD: .right,
+    .arrowRight: .right,
+    .space: .up,
+    .controlLeft: .down,
+    .controlRight: .down,
+    .shiftLeft: .sprint,
+    .shiftRight: .sprint,
   };
 
   final _engine = GameEngine();

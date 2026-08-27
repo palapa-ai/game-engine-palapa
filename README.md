@@ -1,14 +1,10 @@
 # game-engine-palapa
 
-A small real-time 3D engine for Flutter that is Metal-native on Apple
-hardware. The renderer is a hybrid: a raster G-buffer feeds hardware ray
-tracing for shadows and sky-lit indirect bounces, MetalFX upscales (and
-denoises) the low-resolution result, and MetalFX frame interpolation fills in
-every other frame. The finished frame lands in a Flutter `Texture`, so 3D
-content composites with ordinary widgets.
-
-Scene, camera, materials and per-frame transforms live in Dart. Swift owns
-Metal and nothing else.
+A small real-time ray-traced Flutter game engine, Metal-native on Apple
+hardware, running at 120 fps with MetalFX frame generation. A raster G-buffer
+feeds hardware ray tracing, MetalFX upscales and denoises, and the frame
+interpolator generates every other frame — straight into a Flutter `Texture`.
+Scene, camera and simulation stay in Dart; Swift owns Metal and nothing else.
 
 ## Pipeline
 
