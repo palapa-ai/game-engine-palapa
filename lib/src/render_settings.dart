@@ -41,8 +41,11 @@ class RenderSettings {
       requestedUpscale.width < resolution.width ? resolution : requestedUpscale;
 
   /// Native, then the two sizes worth asking MetalFX for.
-  Iterable<Resolution> get upscales =>
-      <Resolution>{resolution, .p1080, .k4}.where((size) => size.width >= resolution.width);
+  Iterable<Resolution> get upscales => <Resolution>{
+    resolution,
+    .p1080,
+    .k4,
+  }.where((size) => size.width >= resolution.width);
 
   RenderSettings copyWith({
     Resolution? resolution,
