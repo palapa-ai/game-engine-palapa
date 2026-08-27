@@ -1,13 +1,13 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:game_engine/src/game_camera.dart';
-import 'package:game_engine/src/game_scene.dart';
-import 'package:game_engine/src/blink.dart';
-import 'package:game_engine/src/instance_animation.dart';
-import 'package:game_engine/src/render_settings.dart';
-import 'package:game_engine/src/sway.dart';
-import 'package:game_engine/src/vec3.dart';
+import 'package:game_engine_palapa/src/game_camera.dart';
+import 'package:game_engine_palapa/src/game_scene.dart';
+import 'package:game_engine_palapa/src/blink.dart';
+import 'package:game_engine_palapa/src/instance_animation.dart';
+import 'package:game_engine_palapa/src/render_settings.dart';
+import 'package:game_engine_palapa/src/sway.dart';
+import 'package:game_engine_palapa/src/vec3.dart';
 import 'package:vector_math/vector_math_64.dart';
 import 'package:yaml/yaml.dart';
 

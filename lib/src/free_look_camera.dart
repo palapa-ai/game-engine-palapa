@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:game_engine/src/game_camera.dart';
-import 'package:game_engine/src/vec3.dart';
+import 'package:game_engine_palapa/src/game_camera.dart';
+import 'package:game_engine_palapa/src/vec3.dart';
 
 enum Movement { forward, back, left, right, up, down, sprint }
 

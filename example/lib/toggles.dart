@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import 'package:game_engine/game_engine.dart';
+import 'package:game_engine_palapa/game_engine_palapa.dart';
 
 enum RayMode { perFrame, perSecond, total }
 

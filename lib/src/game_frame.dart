@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:game_engine/src/game_camera.dart';
+import 'package:game_engine_palapa/src/game_camera.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 class GameFrame {

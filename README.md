@@ -26,7 +26,13 @@ M3 and later).
 
 ## Use
 
+```sh
+flutter pub add game_engine_palapa
+```
+
 ```dart
+import 'package:game_engine_palapa/game_engine_palapa.dart';
+
 final engine = GameEngine();
 final status = await engine.start(width: 1600, height: 1000);
 await engine.setScene(GameScene(

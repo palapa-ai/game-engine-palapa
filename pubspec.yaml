@@ -1,11 +1,16 @@
-name: game_engine
+name: game_engine_palapa
 description: >-
-  A Metal-native real-time renderer for Flutter on Apple hardware: hardware ray
-  tracing, MetalFX temporal upscaling and MetalFX frame interpolation, drawn
-  into a Flutter texture. Scene, camera and simulation stay in Dart; the native
-  side is the renderer.
-version: 0.0.1
-publish_to: "none"
+  A small real-time ray-traced game engine for Flutter: hardware ray tracing and
+  MetalFX frame generation on Apple silicon, drawn into a Flutter texture.
+version: 0.1.0
+repository: https://github.com/palapa-ai/game-engine-palapa
+issue_tracker: https://github.com/palapa-ai/game-engine-palapa/issues
+
+topics:
+  - game-engine
+  - graphics
+  - ray-tracing
+  - metal
 
 environment:
   sdk: ^3.12.0

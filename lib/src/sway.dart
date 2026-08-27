@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
-import 'package:game_engine/src/instance_animation.dart';
-import 'package:game_engine/src/vec3.dart';
+import 'package:game_engine_palapa/src/instance_animation.dart';
+import 'package:game_engine_palapa/src/vec3.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 /// Drift and breathing applied to one instance every frame. Two detuned sines

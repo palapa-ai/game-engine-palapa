@@ -1,4 +1,4 @@
-import 'package:game_engine/src/instance_animation.dart';
+import 'package:game_engine_palapa/src/instance_animation.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 /// On for its slice of the cycle, shrunk to nothing for the rest. Scaling it

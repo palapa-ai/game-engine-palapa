@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:game_engine/game_engine.dart';
+import 'package:game_engine_palapa/game_engine_palapa.dart';
 
 void main() {
   test('cornell scene parses with its raw mesh intact', () {

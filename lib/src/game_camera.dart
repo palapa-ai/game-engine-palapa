@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:game_engine/src/vec3.dart';
+import 'package:game_engine_palapa/src/vec3.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 /// The two projection families a renderer can draw with — converging rays, or

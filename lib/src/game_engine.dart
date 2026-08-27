@@ -1,8 +1,8 @@
 import 'package:flutter/services.dart';
-import 'package:game_engine/src/engine_status.dart';
-import 'package:game_engine/src/game_frame.dart';
-import 'package:game_engine/src/game_scene.dart';
-import 'package:game_engine/src/render_settings.dart';
+import 'package:game_engine_palapa/src/engine_status.dart';
+import 'package:game_engine_palapa/src/game_frame.dart';
+import 'package:game_engine_palapa/src/game_scene.dart';
+import 'package:game_engine_palapa/src/render_settings.dart';
 
 class GameEngine {
   static const _channel = MethodChannel('palapa/game_engine');

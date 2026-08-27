@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:game_engine/game_engine.dart';
+import 'package:game_engine_palapa/game_engine_palapa.dart';
 import 'package:palapa_game_engine/toggles.dart';
 
 class CityWalk extends ChangeNotifier {

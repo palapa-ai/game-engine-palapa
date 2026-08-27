@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:game_engine/src/vec3.dart';
+import 'package:game_engine_palapa/src/vec3.dart';
 
 enum MeshShape {
   box,
