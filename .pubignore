@@ -1,2 +1,12 @@
+.dart_tool/
+build/
+.DS_Store
+*.iml
+.idea/
+pubspec.lock
+example/pubspec.lock
+**/.swiftpm/
+**/.build/
+
 website/
 tool/
