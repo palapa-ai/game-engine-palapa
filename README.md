@@ -1,4 +1,4 @@
-# game_engine
+# game-engine-palapa
 
 A small real-time 3D engine for Flutter that is Metal-native on Apple
 hardware. The renderer is a hybrid: a raster G-buffer feeds hardware ray
