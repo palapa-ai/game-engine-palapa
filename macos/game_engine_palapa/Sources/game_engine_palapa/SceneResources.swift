@@ -91,7 +91,7 @@ final class SceneResources {
     self.materials = materials
 
     let ranges = scene.instances.map { instance -> SIMD2<UInt32> in
-      let range = meshes.ranges[min(instance.meshIndex, meshes.ranges.count - 1)]
+      let range = meshes.ranges[Self.meshIndex(instance.meshIndex, of: meshes.ranges.count)]
       return SIMD2<UInt32>(UInt32(range.vertexOffset), UInt32(range.indexOffset))
     }
     guard
@@ -126,6 +126,12 @@ final class SceneResources {
     }
     guard slots.count == Self.slotCount else { return nil }
     self.slots = slots
+  }
+
+  // A scene names its meshes by index; out of range would read past the
+  // acceleration structures, and negative traps converting to UInt32.
+  static func meshIndex(_ raw: Int, of count: Int) -> Int {
+    min(max(raw, 0), max(count - 1, 0))
   }
 
   func slot(_ index: Int) -> FrameSlot { slots[index % slots.count] }
@@ -166,7 +172,8 @@ final class SceneResources {
       descriptors[index].options = .opaque
       descriptors[index].mask = 0xFF
       descriptors[index].intersectionFunctionTableOffset = 0
-      descriptors[index].accelerationStructureIndex = UInt32(instance.meshIndex)
+      descriptors[index].accelerationStructureIndex =
+        UInt32(Self.meshIndex(instance.meshIndex, of: meshes.accelerationStructures.count))
     }
   }
 

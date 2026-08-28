@@ -54,7 +54,7 @@ class CityWalk extends ChangeNotifier {
 
   Future<void> load() async {
     final source = await rootBundle.loadString(
-      'packages/game_engine/assets/cornell.yaml',
+      'packages/game_engine_palapa/assets/cornell.yaml',
     );
     final document = SceneDocument.parse(source);
     _document = document;

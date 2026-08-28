@@ -1,4 +1,4 @@
-enum UpscalingMode { denoised, temporal, off }
+enum UpscalingMode { denoised, temporal, spatial, off }
 
 class EngineStatus {
   const EngineStatus({
