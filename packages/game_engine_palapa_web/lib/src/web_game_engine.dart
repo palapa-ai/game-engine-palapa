@@ -18,8 +18,6 @@ const _settleFrames = 20;
 
 class WebGameEngine {
   WebGameEngine._(this.surfaceId, this.scene, this._configuration) {
-    scene.toneMapping = ToneMappingMode.aces;
-    scene.exposure = _configuration.exposure;
     _engines[surfaceId] = this;
   }
 
@@ -88,7 +86,7 @@ class WebGameEngine {
       scene.removeAll();
       return false;
     }
-    built.applyTo(scene);
+    built.applyTo(scene, _configuration.exposure);
 
     return true;
   }

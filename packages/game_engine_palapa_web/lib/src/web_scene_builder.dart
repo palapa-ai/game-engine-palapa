@@ -19,6 +19,12 @@ const _lampReach = 24.0;
 const _minimumLampRadius = 0.05;
 const _vanished = 1e-4;
 const _mirrorRoughness = 0.02;
+
+/// The archived site dropped its environment to a sliver once the wall came
+/// in, so the sign lights the brick rather than the sky doing it.
+const _environmentIntensity = 0.06;
+
+const _probesPerFrame = 8;
 const _refractiveRoughness = 0.05;
 
 final _shapes = {for (final shape in MeshShape.values) shape.name: shape};
@@ -109,27 +115,71 @@ class WebScene {
   final GradientSkySource sky;
   final ({vm.Vector3 color, double density, double scattering}) fog;
 
-  void applyTo(Scene scene) {
+  void applyTo(Scene scene, double exposure) {
     scene.removeAll();
     scene.addAll(nodes);
     for (final lamp in lamps) {
       lamp.node.addComponent(PointLightComponent(lamp.light));
-    }
-
-    for (final lamp in lamps) {
       lamp.follow();
     }
 
-    scene.directionalLight = sun;
-    scene.skybox = Skybox(sky);
-    scene.skyEnvironment = SkyEnvironment(sky);
+    // Everything the tracer gets from following rays, bought back a pass at a
+    // time: a probe grid for the bounce light, ground truth occlusion for the
+    // contact darkening, screen space reflections for the gloss, and temporal
+    // anti aliasing to settle the noise the way accumulation settles a trace.
+    scene.environmentSettings = EnvironmentSettings(
+      skybox: Skybox(sky),
+      skyEnvironment: SkyEnvironment(sky),
+      toneMapping: ToneMappingMode.aces,
+      exposure: exposure,
+      environmentIntensity: _environmentIntensity,
 
-    scene.fog
-      ..enabled = fog.density > 0
-      ..mode = FogMode.exponential
-      ..color = fog.color
-      ..density = fog.density
-      ..sunInScatter = fog.scattering;
+      globalIlluminationEnabled: true,
+      globalIlluminationVolumeMode: IrradianceVolumeMode.fitScene,
+      globalIlluminationEmissiveBoost: 2.5,
+      globalIlluminationFireflyClamp: 6.0,
+      globalIlluminationHysteresis: 0.93,
+      globalIlluminationInjectionResolution:
+          IrradianceInjectionResolution.eighth,
+      // The scene barely moves, so the probes can refresh a few at a time
+      // instead of all of them every frame.
+      globalIlluminationProbeUpdateBudget: _probesPerFrame,
+
+      ambientOcclusionEnabled: true,
+      ambientOcclusionMethod: AmbientOcclusionMethod.groundTruth,
+      ambientOcclusionVisibilityBitmask: true,
+      ambientOcclusionRadius: 0.6,
+      ambientOcclusionIntensity: 1.1,
+      ambientOcclusionPower: 1.6,
+      ambientOcclusionIndirectLight: 0.6,
+      ambientOcclusionMultiBounce: 0.7,
+      ambientOcclusionSpecularMode: SpecularAmbientOcclusionMode.simple,
+      ambientOcclusionSliceCount: 2,
+      ambientOcclusionStepsPerSlice: 2,
+
+      bloomEnabled: true,
+      bloomThreshold: 0.8,
+      bloomIntensity: 0.35,
+      bloomScatter: 0.85,
+
+      vignetteEnabled: true,
+      vignetteIntensity: 0.45,
+      vignetteRadius: 0.65,
+
+      fogEnabled: fog.density > 0,
+      fogMode: FogMode.exponential,
+      fogColor: fog.color,
+      fogDensity: fog.density,
+      fogSunInScatter: fog.scattering,
+    );
+
+    scene.directionalLight = sun;
+    scene.antiAliasingMode = AntiAliasingMode.taa;
+    scene.temporalAntiAliasing
+      ..jitterSequenceLength = 16
+      ..minimumCurrentWeight = 0.06
+      ..sharpness = 0.20
+      ..objectMotion = true;
   }
 
   /// Bakes every instance that has held still into one mesh per material and
