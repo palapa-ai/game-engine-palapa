@@ -18,13 +18,22 @@ dependencies:
     sdk: flutter
   flutter_scene: ^0.23.0
   game_engine_palapa:
-    path: ../..
+    git:
+      url: https://github.com/palapa-ai/game-engine-palapa.git
+      ref: web-backend
   vector_math: ^2.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+# Consumers resolve both packages from git, and pub will not reconcile a git
+# dependency with a path into the same checkout. Working on the engine locally
+# still wants the sibling.
+dependency_overrides:
+  game_engine_palapa:
+    path: ../..
 
 flutter:
   plugin:
