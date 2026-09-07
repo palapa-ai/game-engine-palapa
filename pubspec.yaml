@@ -19,9 +19,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_web_plugins:
-    sdk: flutter
-  flutter_scene: ^0.23.0
   vector_math: ^2.2.0
   yaml: ^3.1.2
 
@@ -42,6 +39,3 @@ flutter:
     platforms:
       macos:
         pluginClass: GameEnginePlugin
-      web:
-        pluginClass: GameEngineWebPlugin
-        fileName: src/web/game_engine_web_plugin.dart

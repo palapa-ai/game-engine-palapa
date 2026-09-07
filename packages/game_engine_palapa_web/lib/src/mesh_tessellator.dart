@@ -1,8 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:game_engine_palapa/src/game_scene.dart';
-import 'package:game_engine_palapa/src/vec3.dart';
+import 'package:game_engine_palapa/game_engine_palapa.dart';
 
 class TessellatedMesh {
   const TessellatedMesh({

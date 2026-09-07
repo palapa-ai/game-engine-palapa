@@ -1,11 +1,15 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
-import 'package:game_engine_palapa/src/web/web_game_engine.dart';
+import 'package:game_engine_palapa/game_engine_palapa.dart';
+import 'package:game_engine_palapa_web/src/scene_game_surface.dart';
+import 'package:game_engine_palapa_web/src/web_game_engine.dart';
 
 class GameEngineWebPlugin {
   static void registerWith(Registrar registrar) {
     const codec = StandardMethodCodec();
     final plugin = GameEngineWebPlugin();
+
+    GameSurfaceBackend.instance = const SceneGameSurface();
 
     MethodChannel(
       'palapa/game_engine',

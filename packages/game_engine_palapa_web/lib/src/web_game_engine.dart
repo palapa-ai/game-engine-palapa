@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'dart:ui' show Size;
 
 import 'package:flutter_scene/scene.dart';
-import 'package:game_engine_palapa/src/web/json_values.dart';
-import 'package:game_engine_palapa/src/web/web_scene_builder.dart';
+import 'package:game_engine_palapa_web/src/json_values.dart';
+import 'package:game_engine_palapa_web/src/web_scene_builder.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
 const _deviceName = 'flutter_scene WebGL2';

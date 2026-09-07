@@ -2,11 +2,9 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_scene/scene.dart';
-import 'package:game_engine_palapa/src/game_scene.dart'
-    show MaterialKind, MeshDescription, MeshShape;
-import 'package:game_engine_palapa/src/vec3.dart';
-import 'package:game_engine_palapa/src/web/json_values.dart';
-import 'package:game_engine_palapa/src/web/mesh_tessellator.dart';
+import 'package:game_engine_palapa/game_engine_palapa.dart';
+import 'package:game_engine_palapa_web/src/json_values.dart';
+import 'package:game_engine_palapa_web/src/mesh_tessellator.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
 const _lampThreshold = 0.35;
