@@ -14,9 +14,13 @@ const _lampLimit = 96;
 /// nothing; a forward renderer shades every fragment against every light, so
 /// the web keeps an evenly spread subset and lets the rest glow unlit.
 const _lampBudget = 16;
-const _lampGain = 8.0;
-const _lampReach = 24.0;
-const _minimumLampRadius = 0.05;
+const _lampGain = 2.4;
+
+/// The tracer softens a lamp with 1/(1 + 0.06 d^2). Across the ten to twenty
+/// units these scenes span that curve behaves like an inverse power a shade
+/// above one, not the inverse square a point light defaults to, and the
+/// difference is whether a lamp above the frame still reaches the far wall.
+const _lampFalloff = 1.05;
 const _vanished = 1e-4;
 const _mirrorRoughness = 0.02;
 
@@ -52,7 +56,6 @@ class SceneLamp {
       2,
     ].map((axis) => transform.getColumn(axis).xyz.length).reduce(math.max);
 
-    light.range = math.max(extent * 0.5, _minimumLampRadius) * _lampReach;
     light.color = extent > _vanished ? emissive : vm.Vector3.zero();
   }
 }
@@ -158,8 +161,8 @@ class WebScene {
       ambientOcclusionStepsPerSlice: 2,
 
       bloomEnabled: true,
-      bloomThreshold: 0.8,
-      bloomIntensity: 0.35,
+      bloomThreshold: 1.15,
+      bloomIntensity: 0.20,
       bloomScatter: 0.85,
 
       vignetteEnabled: true,
@@ -346,7 +349,11 @@ List<SceneLamp> _lamps(List<_Instance> instances, List<Node> nodes) {
       .map(
         (entry) => SceneLamp(
           node: nodes[entry.$1],
-          light: PointLight(color: entry.$2.emissive, intensity: _lampGain),
+          light: PointLight(
+          color: entry.$2.emissive,
+          intensity: _lampGain,
+          falloffExponent: _lampFalloff,
+        ),
           emissive: entry.$2.emissive,
         ),
       )
