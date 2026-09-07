@@ -18,6 +18,7 @@ class EngineStatus {
     required this.bounces,
     required this.samples,
     required this.accumulated,
+    required this.drawCalls,
   });
 
   factory EngineStatus.fromJson(Map<String, dynamic> json) => EngineStatus(
@@ -40,6 +41,7 @@ class EngineStatus {
     bounces: json['bounces'] as int? ?? 1,
     samples: json['samples'] as int? ?? 1,
     accumulated: json['accumulated'] as int? ?? 0,
+    drawCalls: json['drawCalls'] as int? ?? 0,
   );
 
   final int? textureId;
@@ -63,6 +65,10 @@ class EngineStatus {
 
   /// Samples of the same still frame averaged so far; zero while anything moves.
   final int accumulated;
+
+  /// Meshes the renderer submits per frame. A tracer builds one acceleration
+  /// structure and reports zero; a rasteriser lives and dies by this number.
+  final int drawCalls;
 
   String get resolutionLabel =>
       '${renderWidth}x$renderHeight → ${outputWidth}x$outputHeight';

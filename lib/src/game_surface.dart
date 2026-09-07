@@ -1,5 +1,14 @@
 import 'package:flutter/widgets.dart';
 
+/// A backend that draws the world into the widget tree rather than into a
+/// platform texture. Metal has a texture and needs none of this; the web
+/// implementation registers itself here when the plugin starts up.
+abstract class GameSurfaceBackend {
+  static GameSurfaceBackend? instance;
+
+  Widget build(BuildContext context, int? textureId, Size size);
+}
+
 class GameSurface extends StatelessWidget {
   const GameSurface({required this.textureId, this.onResize, super.key});
 
@@ -9,6 +18,8 @@ class GameSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final id = textureId;
+    final backend = GameSurfaceBackend.instance;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
@@ -17,9 +28,15 @@ class GameSurface extends StatelessWidget {
             (_) => onResize?.call(size),
           );
         }
-        return id == null
-            ? const SizedBox.expand()
-            : Texture(textureId: id, filterQuality: FilterQuality.medium);
+
+        return switch ((backend, id)) {
+          (final drawn?, _) => drawn.build(context, id, size),
+          (_, null) => const SizedBox.expand(),
+          (_, final int texture) => Texture(
+            textureId: texture,
+            filterQuality: FilterQuality.medium,
+          ),
+        };
       },
     );
   }
