@@ -6,7 +6,7 @@ import 'package:flutter/widgets.dart';
 abstract class GameSurfaceBackend {
   static GameSurfaceBackend? instance;
 
-  Widget build(BuildContext context, int? textureId);
+  Widget build(BuildContext context, int? textureId, Size size);
 }
 
 class GameSurface extends StatelessWidget {
@@ -30,7 +30,7 @@ class GameSurface extends StatelessWidget {
         }
 
         return switch ((backend, id)) {
-          (final drawn?, _) => drawn.build(context, id),
+          (final drawn?, _) => drawn.build(context, id, size),
           (_, null) => const SizedBox.expand(),
           (_, final int texture) => Texture(
             textureId: texture,

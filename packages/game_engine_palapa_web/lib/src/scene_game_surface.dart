@@ -7,15 +7,19 @@ class SceneGameSurface implements GameSurfaceBackend {
   const SceneGameSurface();
 
   @override
-  Widget build(BuildContext context, int? textureId) {
+  Widget build(BuildContext context, int? textureId, Size size) {
     final engine = WebGameEngine.forSurface(textureId);
     if (engine == null) return const SizedBox.expand();
 
-    return SceneView(
-      engine.scene,
-      key: ValueKey(engine.surfaceId),
-      cameraBuilder: (_) => engine.camera,
-      pixelRatio: engine.pixelRatioFor(MediaQuery.sizeOf(context)),
+    // The view paints whatever size it is handed and does not clip itself, so
+    // a stale or window sized ratio spills the scene past the banner.
+    return ClipRect(
+      child: SceneView(
+        engine.scene,
+        key: ValueKey(engine.surfaceId),
+        cameraBuilder: (_) => engine.camera,
+        pixelRatio: engine.pixelRatioFor(size),
+      ),
     );
   }
 }

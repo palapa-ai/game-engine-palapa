@@ -431,9 +431,9 @@ DirectionalLight _sun(Map<Object?, Object?> json) => DirectionalLight(
   direction: _direction(json.triple('direction', const [-0.4, -1.0, -0.35])),
   color: vm.Vector3.array(json.triple('color', const [1.0, 0.96, 0.9])),
   intensity: json.number('intensity', 4.0),
-  // Cascades cost a depth pass per cascade, and every scene here is lit by its
-  // own emitters with the sun turned almost off.
-  castsShadow: false,
+  // The sign drops a soft shadow down the brick in the original, and that
+  // shadow is most of what tells you the letters stand off the wall.
+  castsShadow: true,
   angularRadius: json.number('angularRadius', 0.03),
 );
 
