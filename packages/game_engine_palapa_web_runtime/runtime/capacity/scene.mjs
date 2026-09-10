@@ -419,12 +419,25 @@ export function createCapacity(canvas, options) {
       options.onReady();
     } catch (_) { if (!dead) fail(); }
   };
-  let loading = false;
+  let loading = false, backgroundLoad = 0;
+  const beginLoad = () => {
+    backgroundLoad = 0;
+    if (dead || loading || document.hidden) return;
+    loading = true;
+    void load();
+  };
+  const visibility = () => {
+    clearTimeout(backgroundLoad); backgroundLoad = 0;
+    if (!dead && !loading && !document.hidden) {
+      if (visible) beginLoad();
+      else backgroundLoad = setTimeout(beginLoad, 500);
+    }
+    refresh();
+  };
   const observer = new IntersectionObserver(entries => {
     if (dead) return;
     visible = entries[entries.length - 1].isIntersecting;
-    if (visible && !loading) { loading = true; void load(); }
-    refresh();
+    visibility();
   });
   observer.observe(canvas);
   canvas.tabIndex = 0;
@@ -441,11 +454,13 @@ export function createCapacity(canvas, options) {
   canvas.addEventListener('click', click);
   canvas.addEventListener('keydown', key);
   canvas.addEventListener('webglcontextlost', lost);
-  document.addEventListener('visibilitychange', refresh);
+  document.addEventListener('visibilitychange', visibility);
   reduced.addEventListener('change', refresh);
+  visibility();
   function dispose() {
     if (dead) return;
     dead = true; request.abort(); cancelAnimationFrame(frame); observer.disconnect();
+    clearTimeout(backgroundLoad);
     releaseTouch();
     lighting.forEach(job => job.dispose());
     canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
@@ -453,7 +468,7 @@ export function createCapacity(canvas, options) {
     canvas.removeEventListener('lostpointercapture', cancel);
     canvas.removeEventListener('click', click); canvas.removeEventListener('keydown', key);
     canvas.removeEventListener('webglcontextlost', lost);
-    document.removeEventListener('visibilitychange', refresh); reduced.removeEventListener('change', refresh);
+    document.removeEventListener('visibilitychange', visibility); reduced.removeEventListener('change', refresh);
     scene?.traverse(object => {
       object.geometry?.dispose();
       const materials = object.material ? (Array.isArray(object.material) ? object.material : [object.material]) : [];

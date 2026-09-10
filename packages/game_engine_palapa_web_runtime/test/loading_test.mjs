@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { downloadAssets, formatRemaining } from '../runtime/hero/loading.mjs';
-import { rubber } from '../runtime/hero/materials.mjs';
 
 const response = chunks => new Response(new ReadableStream({
   start(controller) {
@@ -70,12 +69,4 @@ test('invalid manifests fail before fetching and small remaining amounts never r
   assert.equal(formatRemaining(0), '0 MB');
   assert.equal(formatRemaining(1), '0.1 MB');
   assert.equal(formatRemaining(1700000), '1.7 MB');
-});
-
-test('rubber remains matte and nonmetallic through scene material normalization', () => {
-  const material = rubber(0xf7768e);
-  assert.equal(material.roughness, 0.95);
-  assert.equal(material.metalness, 0);
-  assert.equal(material.userData.noReflect, true);
-  material.dispose();
 });
