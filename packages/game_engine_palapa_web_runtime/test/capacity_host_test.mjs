@@ -1,0 +1,151 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from '../runtime/hero/vendor/three.module.min.js';
+import { createCapacity } from '../runtime/capacity/scene.mjs';
+
+test('capacity traces the settled table and only rebuilds when its geometry changes', async t => {
+  const globals = new Map();
+  const install = (name, value) => {
+    globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+  };
+  t.after(() => globals.forEach((descriptor, name) => {
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete globalThis[name];
+  }));
+  const bounds = { left: 80, top: 300, width: 640, height: 700 };
+  class Element extends EventTarget {
+    style = {};
+    setAttribute(name, value) { this[name] = value; }
+    getBoundingClientRect() { return bounds; }
+    getContext(kind) {
+      assert.equal(kind, '2d', 'the shared component must not create a private graphics context');
+      return { fillText() {}, getImageData: () => ({ data: new Uint8Array(256 * 256 * 4) }) };
+    }
+    hasPointerCapture() { return false; }
+  }
+  const media = Object.assign(new EventTarget(), { matches: false });
+  install('scrollY', 100);
+  install('document', Object.assign(new EventTarget(), { hidden: false, createElement: () => new Element() }));
+  install('matchMedia', () => media);
+  install('IntersectionObserver', class {
+    constructor(callback) { this.callback = callback; }
+    observe() { this.callback([{ isIntersecting: true }]); }
+    disconnect() {}
+  });
+  install('Image', class { async decode() {} });
+  install('requestAnimationFrame', () => assert.fail('capacity must use the shared host clock'));
+  install('cancelAnimationFrame', () => assert.fail('capacity must use the shared host clock'));
+  const font = {
+    resolution: 1000, boundingBox: { yMin: 0, yMax: 700 }, underlineThickness: 50,
+    glyphs: { '?': { ha: 600, o: 'm 0 0 l 500 0 l 500 700 l 0 700 l 0 0' }, ' ': { ha: 300, o: '' } },
+  };
+  install('fetch', async url => new Response(url === 'font' ? JSON.stringify(font) : url === 'land' ? '[]' : 'earth'));
+  const groups = [], callbacks = new Set();
+  let geometryChanges = 0, dynamicChanges = 0;
+  const host = {
+    camera: new THREE.OrthographicCamera(-400, 400, 0, -800, 0.1, 10000),
+    renderer: {
+      capabilities: { getMaxAnisotropy: () => 4 },
+      domElement: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 800 }) },
+      getDrawingBufferSize: vector => vector.set(1600, 1600),
+    },
+    add(group, options = {}) {
+      assert.equal(group.isGroup, true);
+      assert.notEqual(options.dynamic, true, 'the whole capacity group must not be excluded from tracing');
+      groups.push(group);
+    },
+    remove(group) { groups.splice(groups.indexOf(group), 1); },
+    tick(callback) { callbacks.add(callback); return () => callbacks.delete(callback); },
+    invalidate(options = {}) {
+      if (options.dynamic) dynamicChanges++;
+      else geometryChanges++;
+    },
+  };
+  let ready, failed;
+  const loaded = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+  const anchor = new Element();
+  const control = createCapacity(anchor, {
+    host, fontUrl: 'font', earthUrl: 'earth', landUrl: 'land',
+    countries: [{ country: 'Example', flag: 'X', megawattHours: 1 }],
+    comparisons: [{ title: 'Example model', unit: '1M tokens', rows: [['Local', '$0.01']] }],
+    models: [{ name: 'Example (A | B)', flag: 'X' }],
+    onReady: ready, onFailed: failed, onScroll() {},
+  });
+  t.after(() => control.dispose());
+  control.resize(640, 700, 2, true, 12);
+  await loaded;
+  assert.equal(groups.length, 1);
+  assert.equal(callbacks.size, 1);
+  const root = groups[0], table = root.getObjectByName('capacity-table');
+  const globe = root.getObjectByName('capacity-globe'), ticker = root.getObjectByName('capacity-ticker');
+  assert.notEqual(root.userData.dynamic, true);
+  assert.notEqual(table.userData.dynamic, true);
+  assert.equal(globe.userData.dynamic, true);
+  assert.equal(ticker.userData.dynamic, true);
+  assert.equal(table.children[0].visible, true);
+  assert.equal(table.children[1].visible, false);
+  assert.equal(table.children[1].userData.dynamic, true, 'hidden page geometry must stay outside the BVH');
+  assert.equal(root.position.y, -750);
+  assert.equal(ticker.children[0].material.clippingPlanes[0].constant, 320, 'ticker uses the full container');
+
+  let now = 0;
+  const advance = frames => {
+    for (let frame = 0; frame < frames; frame++) {
+      now += 50;
+      for (const callback of callbacks) callback(now);
+    }
+  };
+  const initialChanges = geometryChanges;
+  const tableRotation = table.rotation.clone(), globeRotation = globe.rotation.y;
+  advance(30);
+  assert.equal(geometryChanges, initialChanges, 'idle animation must not restart the static trace');
+  assert.ok(table.rotation.equals(tableRotation));
+  assert.notEqual(globe.rotation.y, globeRotation);
+  assert.ok(dynamicChanges > 0);
+
+  const next = () => anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Enter' }));
+  next();
+  assert.equal(table.userData.dynamic, true);
+  assert.equal(geometryChanges, initialChanges + 1, 'exclude the table at transition start');
+  advance(5);
+  assert.equal(geometryChanges, initialChanges + 1, 'transition frames only update dynamic geometry');
+  advance(10);
+  assert.equal(table.userData.dynamic, false);
+  assert.equal(table.children[0].visible, false);
+  assert.equal(table.children[0].userData.dynamic, true);
+  assert.equal(table.children[1].visible, true);
+  assert.equal(table.children[1].userData.dynamic, false);
+  assert.equal(geometryChanges, initialChanges + 2, 'retrace once when the new page settles');
+  advance(20);
+  assert.equal(geometryChanges, initialChanges + 2);
+
+  next();
+  media.matches = true;
+  media.dispatchEvent(new Event('change'));
+  assert.equal(table.userData.dynamic, false, 'reduced motion settles an in-flight transition');
+  assert.equal(table.children[0].visible, true);
+  assert.equal(callbacks.size, 0);
+  assert.equal(geometryChanges, initialChanges + 4);
+  next();
+  assert.equal(table.children[1].visible, true);
+  assert.equal(table.userData.dynamic, false);
+  assert.equal(geometryChanges, initialChanges + 5, 'a reduced-motion page change retraces once');
+
+  control.resize(640, 700, 2, true, 12);
+  assert.equal(geometryChanges, initialChanges + 5);
+  bounds.top -= 40;
+  globalThis.scrollY += 40;
+  control.resize(640, 700, 2, true, 12);
+  assert.equal(geometryChanges, initialChanges + 5, 'scrolling does not change document-space geometry');
+  bounds.top += 20;
+  control.resize(640, 700, 2, true, 12);
+  assert.equal(geometryChanges, initialChanges + 6, 'a real anchor movement updates the static table');
+  control.resize(640, 700, 1, true, 12);
+  assert.equal(geometryChanges, initialChanges + 6, 'pixel ratio changes do not change scene geometry');
+  control.resize(640, 700, 1, false, 12);
+  assert.equal(geometryChanges, initialChanges + 7, 'responsive layout changes retrace once');
+  control.dispose();
+  assert.equal(groups.length, 0);
+  assert.equal(callbacks.size, 0);
+});
