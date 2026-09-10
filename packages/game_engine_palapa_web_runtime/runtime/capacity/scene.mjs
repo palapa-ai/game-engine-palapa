@@ -221,7 +221,8 @@ export function createCapacity(canvas, options) {
     const perPixel = worldHeight / height;
     tableScale = narrow ? Math.min(worldWidth * 0.96 / (RIGHT - LEFT), 21 * worldWidth / width / FONT_SIZE) : 1;
     tickerScale = narrow ? Math.min(2, 21 * worldWidth / width / 0.2) : 1;
-    const globeScale = narrow ? worldWidth * 0.46 : 1.3;
+    const tableRadius = (RIGHT - LEFT) * tableScale * Math.cos(0.25) / 2;
+    const globeScale = narrow ? tableRadius / Math.hypot(1, tableRadius / camera.position.z) / 1.018 : 1.3;
     const globeRadius = globeScale * 0.99;
     globe.position.set(narrow ? 0 : -2.5, narrow ? worldHeight / 2 - 18 * perPixel - globeRadius : 0.25, 0);
     globe.scale.setScalar(globeScale);
@@ -390,7 +391,7 @@ export function createCapacity(canvas, options) {
         divider.position.set(0, 1.12, 0);
         page.add(divider);
         comparison.rows.forEach(([name, price], index) => {
-          const y = 1 - (index + 1) * ROW;
+          const y = 1 - (index + 1) * ROW - 0.06;
           addText(page, name, LEFT, y, index < 2 ? COLORS.green : COLORS.text, { maxWidth: 2.65 });
           addText(page, price, RIGHT, y, index < 2 ? COLORS.green : 0xf7768e, { right: true });
         });

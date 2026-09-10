@@ -53,7 +53,7 @@ const light = (scene) => {
   });
 };
 
-const row = (font, segs, size, parent) => {
+const row = (font, segs, size, parent, maxWidth) => {
   const group = new THREE.Group();
   const x = segs.reduce((pen, seg) => {
     const item = word(font, seg.text, seg.color, size);
@@ -61,7 +61,10 @@ const row = (font, segs, size, parent) => {
     group.add(item.mesh);
     return pen + item.w + size * GAP;
   }, 0);
-  group.position.x = -x / 2;
+  const width = Math.max(0, x - size * GAP);
+  const scale = Math.min(1, maxWidth / Math.max(width, 0.001));
+  group.scale.setScalar(scale);
+  group.position.x = -width * scale / 2;
   parent.add(group);
 };
 
@@ -330,8 +333,9 @@ export function createText3d(canvas, options) {
       content.rows.forEach((segments, index) => {
         const line = new THREE.Group();
         line.position.y = half - face * (FIRST_BASELINE + index * LINE);
+        line.position.z = -face * 0.2;
         scene.add(line);
-        row(font, segments, face, line);
+        row(font, segments, face, line, (width - 4) * world);
       });
     }
     const camera = new THREE.PerspectiveCamera(
