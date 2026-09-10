@@ -2,6 +2,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { FontLoader } from "./vendor/FontLoader.js";
 import { TextGeometry } from "./vendor/TextGeometry.js";
 import { traceSurface } from "./trace-surface.mjs";
+import { renderSettings } from "./render-settings.mjs";
 
 const FONT = "./helvetiker_regular.typeface.json";
 const TAN = Math.tan(Math.PI / 12);
@@ -85,7 +86,7 @@ const wrappedLines = (font, spans, size, width) => {
     if (line.length && used + measured > width) flush();
     if (!line.length && !text.trim()) return;
     const previous = line.at(-1);
-    if (previous && previous.color === span.color && previous.href === span.href) {
+    if (previous && !previous.slot && !span.slot && previous.color === span.color && previous.href === span.href) {
       previous.text += text;
       previous.width += measured;
     } else {
@@ -94,6 +95,7 @@ const wrappedLines = (font, spans, size, width) => {
     used += measured;
   };
   spans.forEach((span) => {
+    if (span.slot) { append(span.text, span); return; }
     span.text.split(/(\s+)/u).filter(Boolean).forEach((token) => {
       if (token.includes("\n")) { flush(); return; }
       if (em(font, token) * size > width) {
@@ -134,7 +136,7 @@ export function layoutDocument(font, paragraphs, width, inset = 0) {
     baseline ??= paragraphTop + size + 0.15 * worldPixel;
     const alignment = paragraph.alignment || "start";
     const spans = paragraph.spans || [];
-    const gap = size * LINE;
+    const gap = paragraph.splitGap ?? size * LINE;
     const splitWidth = spans.reduce((sum, span) => sum + em(font, span.text) * size, 0) +
       gap * Math.max(0, spans.length - 1);
     const split = alignment === "split" && splitWidth <= measure;
@@ -230,13 +232,21 @@ export function createText3d(canvas, options) {
       ? content.paragraphs
       : content.rows.map((spans) => ({ spans }));
     paragraphs.forEach((paragraph) => {
-      const text = paragraph.spans.filter((span) => !span.href).map((span) => span.text).join(" ");
+      const text = paragraph.spans.filter((span) => !span.href && !span.slot).map((span) => span.text).join(" ");
       if (!text.trim()) return;
       const label = document.createElement(paragraph.heading ? "h2" : "p");
       label.textContent = text;
       label.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;margin:0;";
       parent.appendChild(label);
       accessible.push(label);
+    });
+    layout?.entries.filter(entry => entry.slot).forEach(entry => {
+      const slot = document.createElement('span');
+      slot.dataset.text3dSlot = entry.slot;
+      slot.style.cssText = `position:absolute;left:${entry.x}px;top:${entry.baseline - entry.size}px;width:${entry.width}px;height:${entry.size * LINE}px;font:${entry.size}px/1.5 sans-serif;color:#${entry.color.toString(16).padStart(6, '0')};white-space:nowrap;`;
+      parent.append(slot);
+      accessible.push(slot);
+      options.onSlot?.(entry.slot, slot);
     });
     layout?.entries.filter((entry) => entry.href).forEach((entry, index) => {
       const anchor = document.createElement("a");
@@ -271,7 +281,7 @@ export function createText3d(canvas, options) {
       height = (content.rows.length * LINE + PAD) * size;
     }
     const scale = Math.min(
-      ratio, MAX_PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (width * height)),
+      ratio * renderSettings.value.resolution, MAX_PIXEL_RATIO * renderSettings.value.resolution, Math.sqrt(MAX_PIXELS / (width * height)),
       renderer.capabilities.maxTextureSize / Math.max(width, height),
     );
     renderer.setSize(
@@ -285,6 +295,7 @@ export function createText3d(canvas, options) {
     const half = height * world / 2;
     if (layout) {
       layout.entries.forEach((entry) => {
+        if (entry.slot) return;
         if (entry.dividerColor != null) {
           const thickness = entry.size * world;
           const depth = thickness * 0.2;
@@ -346,6 +357,8 @@ export function createText3d(canvas, options) {
     try { draw(); } catch (error) { fail(String(error?.message || error)); }
   };
 
+  const unsubscribe = renderSettings.subscribe(() => { revision++; attemptDraw(); });
+
   loadFont().then((loaded) => {
     if (disposed) return;
     font = loaded;
@@ -379,6 +392,7 @@ export function createText3d(canvas, options) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribe();
       canvas.removeEventListener("webglcontextlost", contextLost);
       clearAccessible();
       try { clear(); renderer?.dispose(); } catch (_) {}

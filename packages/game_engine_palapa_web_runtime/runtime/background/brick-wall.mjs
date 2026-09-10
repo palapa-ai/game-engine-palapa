@@ -1,4 +1,5 @@
 import { Scanlines, visibleBuffer } from './brick-scanlines.mjs';
+import { renderSettings } from '../hero/render-settings.mjs';
 
 import { brickProjection } from './brick-material.mjs';
 import { ATLAS_WIDTH, ATLAS_HEIGHT, CLAY, brickSurface, paintBricks } from './brick-surface.mjs';
@@ -15,6 +16,7 @@ uniform vec2 cssSize;
 uniform vec3 projection;
 uniform sampler2D surface;
 uniform float sampleIndex;
+uniform int bounces;
 out vec4 color;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float random(inout vec2 seed) { seed += vec2(0.754877, 0.56984); return hash(seed); }
@@ -75,6 +77,17 @@ void main() {
   vec3 bounce = hemisphere(n, seed);
   float obstruction = trace(p + n * 0.008, bounce, 2.0);
   vec3 indirect = obstruction < 0.0 ? vec3(0.2) : albedo(p + bounce * obstruction) * 0.16;
+  vec3 throughput = vec3(0.16);
+  vec3 hit = p;
+  for (int i = 1; i < 8; i++) {
+    if (i >= bounces || obstruction < 0.0) break;
+    hit += bounce * obstruction;
+    vec3 normal = normalize(surfaceAt(hit.xy).yzw);
+    throughput *= albedo(hit);
+    bounce = hemisphere(normal, seed);
+    obstruction = trace(hit + normal * 0.008, bounce, 2.0);
+    if (obstruction < 0.0) indirect += throughput * 0.2;
+  }
   // A fixed wash extends the hero lighting without coupling either tracer to logo input.
   vec3 direction = normalize(vec3(-0.31, 0.47, 0.826) +
     vec3(random(seed) - 0.5, random(seed) - 0.5, 0) * 0.16);
@@ -199,6 +212,7 @@ class Tracer {
     gl.uniform2f(uniform('cssSize'), ...this.cssSize);
     gl.uniform3f(uniform('projection'), this.projection.x, this.projection.y, this.projection.course);
     gl.uniform1f(uniform('sampleIndex'), band.sample);
+    gl.uniform1i(uniform('bounces'), renderSettings.value.bounces);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, previous.texture);
     gl.uniform1i(uniform('previous'), 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.surface);
@@ -276,6 +290,7 @@ export function mountBrickWall(host) {
       if (queue.done) {
         traced.style.visibility = '';
         host.dataset.render = 'complete';
+        host.dataset.traceFinishedAt = String(performance.now());
       }
       else {
         const bounds = host.getBoundingClientRect();
@@ -297,11 +312,13 @@ export function mountBrickWall(host) {
         const gl = tracer.gl;
         const limit = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE),
           gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
-        const buffer = visibleBuffer(width, height, ratio, 900000, limit);
+        const buffer = visibleBuffer(width, height, ratio * renderSettings.value.resolution, 900000 * renderSettings.value.resolution ** 2, limit);
         traced.width = buffer.width;
         traced.height = buffer.height;
         tracer.reset(buffer.width, buffer.height, [width, height], brickProjection(width));
-        queue = new Scanlines(buffer.width, buffer.height);
+        queue = new Scanlines(buffer.width, buffer.height, { samples: renderSettings.value.samples ?? 8 });
+        host.dataset.traceTargetSamples = String(queue.samples);
+        host.dataset.traceBounces = String(renderSettings.value.bounces);
         pending = null;
       } catch (_) {
         pending = null;
@@ -331,6 +348,8 @@ export function mountBrickWall(host) {
     try { paintBricks(raster, width, height, brickProjection(width)); }
     catch (_) { fail(); dispose(); return; }
     host.dataset.render = 'raster';
+    host.dataset.traceStartedAt = String(performance.now());
+    delete host.dataset.traceFinishedAt;
     host.dataset.scanline = '0';
     traced.style.visibility = 'hidden';
     pending = dimensions;
@@ -344,6 +363,7 @@ export function mountBrickWall(host) {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    unsubscribe();
     pause();
     events.abort();
     observer?.disconnect();
@@ -352,6 +372,7 @@ export function mountBrickWall(host) {
     raster.remove();
     traced.remove();
   }
+  const unsubscribe = renderSettings.subscribe(() => reset(true));
   try {
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host.style.width = '100%';

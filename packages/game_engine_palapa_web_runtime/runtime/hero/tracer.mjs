@@ -129,6 +129,16 @@ export async function attachTracer(renderer, scene, camera, cfg) {
         return false;
       }
     },
+    present() {
+      const pause = pt.pausePathTracing, fade = pt.fadeDuration;
+      try {
+        pt.pausePathTracing = true;
+        pt.fadeDuration = 0;
+        renderer.setRenderTarget(null);
+        renderer.clear();
+        pt.renderSample();
+      } finally { pt.pausePathTracing = pause; pt.fadeDuration = fade; }
+    },
     rebuild() { if (!this.dead) build().catch(() => { this.dead = true; }); },
     updateCamera() { if (this.dead) return; try { pt.updateCamera(); } catch (e) { this.dead = true; } },
     updateMaterials() { if (this.dead) return; try { pt.updateMaterials(); } catch (e) { this.dead = true; } },

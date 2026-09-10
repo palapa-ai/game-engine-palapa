@@ -136,3 +136,28 @@ test('geometry lighting traces rays and returns finite surface colors', async ()
     assert.ok(data.updates.flatMap(entry => [...entry.colors]).every(Number.isFinite));
   } finally { await worker.terminate(); }
 });
+
+test('live text slots retain a single reserved space across wrapping and split alignment', async () => {
+  const font = new FontLoader().parse(JSON.parse(await readFile(new URL('hero/helvetiker_regular.typeface.json', root))));
+  for (const width of [180, 880]) {
+    const layout = layoutDocument(font, [{spans:[{text:'Copyright',color:0x9e9e9e},{text:'Terms · Privacy · ',color:0x9e9e9e},{text:'000 FPS',slot:'fps',color:0x9e9e9e},{text:' · debug',color:0x9e9e9e}],size:12,alignment:'split',splitGap:0}], width);
+    const slots = layout.entries.filter(entry => entry.slot);
+    assert.equal(slots.length,1);
+    assert.equal(slots[0].text,'000 FPS');
+    assert.ok(layout.entries.every(entry => entry.x >= 0 && entry.x + entry.width <= width + .01));
+  }
+});
+
+test('render settings notify only real valid changes and release disposed subscribers', async () => {
+  const {renderSettings} = await import('../runtime/hero/render-settings.mjs');
+  const seen = [];
+  const unsubscribe = renderSettings.subscribe(value => seen.push(value));
+  renderSettings.update({samples:64,resolution:.5,bounces:2});
+  renderSettings.update({samples:64});
+  assert.equal(seen.length,1);
+  for (const invalid of [{samples:0},{samples:NaN},{bounces:9},{resolution:Infinity}]) assert.throws(() => renderSettings.update(invalid),RangeError);
+  assert.deepEqual(renderSettings.value,{samples:64,resolution:.5,bounces:2});
+  unsubscribe();
+  renderSettings.update({samples:null,resolution:1,bounces:4});
+  assert.equal(seen.length,1);
+});

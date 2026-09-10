@@ -1,5 +1,6 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { FullScreenQuad } from "./vendor/Pass.js";
+import { renderSettings } from "./render-settings.mjs";
 
 
 const YAW_LIMIT = 0.3;
@@ -66,9 +67,8 @@ export function createSceneSurface(canvas, definition, options = {}) {
     scriptFont: definition.fontUrl,
     viewportHeight: null,
     denoise: true,
-    denoiseAtSamples: 8,
+    denoiseAtSamples: 32,
     cleanSamples: 128,
-    bounces: 4,
     tiles: 2,
     pointerDrag: true,
     ...options,
@@ -129,6 +129,8 @@ export function createSceneSurface(canvas, definition, options = {}) {
     canvas.dataset.render = state.phase === "ready" ? "complete"
       : state.phase === "raster" && state.tier === "raster" ? "fallback" : state.phase;
     canvas.dataset.samples = String(state.samples);
+    canvas.dataset.traceTargetSamples = String(renderSettings.value.samples ?? opt.cleanSamples);
+    canvas.dataset.traceBounces = String(renderSettings.value.bounces);
     canvas.dataset.revision = String(poseSerial);
     canvas.dataset.logoYaw = String(state.yaw);
     canvas.dataset.logoPitch = String(state.pitch);
@@ -188,6 +190,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
   const ready = () => {
     if (state.phase === "ready") return;
     state.phase = "ready";
+    canvas.dataset.traceFinishedAt = String(performance.now());
     diagnostic();
     state.timings.cleanMs = state.timings.cleanMs ?? since();
     try { options.onReady?.({ ...state.timings, tier: state.tier }); } catch (e) { /* ditto */ }
@@ -231,7 +234,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
     built.L = L;
     generation++;
     built.scene = buildHeroScene(renderer, L, script, opt);
-    built.scene.setRenderScale(L.fxRes);
+    built.scene.setRenderScale(L.fxRes * renderSettings.value.resolution);
     built.baseZ = built.scene.camera.position.z;
     sway(built.scene.camera, built.baseZ, state.pitch, state.yaw);
 
@@ -252,12 +255,14 @@ export function createSceneSurface(canvas, definition, options = {}) {
   const attach = async () => {
     const version = generation;
     const source = built.scene;
+    canvas.dataset.traceStartedAt = String(performance.now());
+    delete canvas.dataset.traceFinishedAt;
     const { attachTracer } = await import("./tracer.mjs");
     if (disposed || version !== generation) return;
     const L = built.L;
     source.setFill(0);
     const t = await attachTracer(renderer, source.scene, source.camera, {
-      bounces: opt.bounces, tiles: opt.tiles, rtRes: L.q.rtRes, fxRes: L.fxRes,
+      bounces: renderSettings.value.bounces, tiles: opt.tiles, rtRes: L.q.rtRes, fxRes: L.fxRes,
     });
     if (disposed || version !== generation) { t.dispose(); return; }
     tracer = t;
@@ -455,13 +460,13 @@ export function createSceneSurface(canvas, definition, options = {}) {
     state.samples = tracer.samples;
     if (posePresented === poseSerial) { compose(); return; }
     if (denoising) return;
-    const wantDenoise = opt.denoise && backend && state.samples >= opt.denoiseAtSamples;
+    const wantDenoise = opt.denoise && backend && state.samples >= (renderSettings.value.samples ?? opt.denoiseAtSamples);
     if (wantDenoise) {
       denoising = true;
       runDenoise().catch(() => dropDenoiser()).finally(() => { denoising = false; wake(); });
       return;
     }
-    if (state.samples < opt.cleanSamples) {
+    if (state.samples < (renderSettings.value.samples ?? opt.cleanSamples)) {
       trace(visible ? governor(t) : 1);
       state.samples = tracer.samples;
       state.phase = "tracing";
@@ -493,7 +498,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
     teardownScene();
     built.L = L;
     built.scene = buildHeroScene(renderer, L, built.script, opt);
-    built.scene.setRenderScale(L.fxRes);
+    built.scene.setRenderScale(L.fxRes * renderSettings.value.resolution);
     built.baseZ = built.scene.camera.position.z;
     sway(built.scene.camera, built.baseZ, state.pitch, state.yaw);
     raster();
@@ -581,6 +586,8 @@ export function createSceneSurface(canvas, definition, options = {}) {
       posePresented = -1;
       state.samples = 0;
       state.phase = "settling";
+      canvas.dataset.traceStartedAt = String(performance.now());
+      delete canvas.dataset.traceFinishedAt;
       abortDenoise?.();
       abortDenoise = null;
       tracer?.updateCamera();
@@ -596,6 +603,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribe();
       state.phase = "disposed";
       stop();
       clearTimeout(poseTimer);
@@ -622,6 +630,8 @@ export function createSceneSurface(canvas, definition, options = {}) {
       } catch (e) { /* teardown is best effort */ }
     },
   };
+
+  const unsubscribe = renderSettings.subscribe(() => { pending = { ...(pending || box) }; wake(); });
 
   const visibility = () => {
     if (!active()) { stop(); abortDenoise?.(); return; }

@@ -1,6 +1,8 @@
 import { attachTracer } from './tracer.mjs';
+import { renderSettings } from './render-settings.mjs';
 
 const queue = new Set();
+const CLEAN_SAMPLES = 256;
 let timer = 0, running = false;
 
 function schedule() {
@@ -20,12 +22,16 @@ async function pump() {
 
 export function traceSurface(canvas, renderer, scene, camera, revision) {
   let tracer = null;
+  const quality = renderSettings.value;
+  const samples = quality.samples ?? CLEAN_SAMPLES;
   const bounds = canvas.getBoundingClientRect();
   const finish = failed => {
     if (job.disposed) return;
     queue.delete(job);
-    canvas.dataset.render = failed ? 'fallback' : 'complete';
     if (failed) renderer.render(scene, camera);
+    else tracer?.present();
+    canvas.dataset.render = failed ? 'fallback' : 'complete';
+    canvas.dataset.traceFinishedAt = String(performance.now());
     tracer?.dispose(); tracer = null;
   };
   const job = {
@@ -35,15 +41,15 @@ export function traceSurface(canvas, renderer, scene, camera, revision) {
       try {
         if (!tracer) {
           tracer = await attachTracer(renderer, scene, camera, {
-            bounces: 4, rtRes: 1, fxRes: Math.max(1, canvas.width / 1280), tiles: 2,
+            bounces: quality.bounces, rtRes: 1, fxRes: Math.max(1, canvas.width / (2048 * quality.resolution)), tiles: 2,
           });
           if (job.disposed) { tracer.dispose(); tracer = null; return; }
           canvas.dataset.render = 'tracing';
         }
-        if (!tracer.sample(1)) { finish(true); return; }
+        if (!tracer.sample(job.visible ? 4 : 2)) { finish(true); return; }
         canvas.dataset.traceSamples = String(tracer.samples);
         canvas.dataset.tracePriority = job.visible ? 'visible' : 'background';
-        if (tracer.samples >= 16) finish(false);
+        if (tracer.samples >= samples) finish(false);
       } catch (_) { finish(true); }
     },
   };
@@ -60,6 +66,10 @@ export function traceSurface(canvas, renderer, scene, camera, revision) {
   canvas.dataset.render = 'loading';
   canvas.dataset.traceMethod = 'path-tracing';
   canvas.dataset.traceRevision = revision;
+  canvas.dataset.traceTargetSamples = String(samples);
+  canvas.dataset.traceBounces = String(quality.bounces);
+  canvas.dataset.traceStartedAt = String(performance.now());
+  delete canvas.dataset.traceFinishedAt;
   queue.add(job);
   schedule();
   return { dispose() {

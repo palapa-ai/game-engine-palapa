@@ -221,7 +221,7 @@ export function createCapacity(canvas, options) {
     const perPixel = worldHeight / height;
     tableScale = narrow ? Math.min(worldWidth * 0.96 / (RIGHT - LEFT), 21 * worldWidth / width / FONT_SIZE) : 1;
     tickerScale = narrow ? Math.min(2, 21 * worldWidth / width / 0.2) : 1;
-    const globeScale = narrow ? Math.min(1.6, worldWidth * 0.46) : 1.3;
+    const globeScale = narrow ? worldWidth * 0.46 : 1.3;
     const globeRadius = globeScale * 0.99;
     globe.position.set(narrow ? 0 : -2.5, narrow ? worldHeight / 2 - 18 * perPixel - globeRadius : 0.25, 0);
     globe.scale.setScalar(globeScale);
@@ -342,13 +342,16 @@ export function createCapacity(canvas, options) {
         const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color }));
         return { mesh, width: geometry.boundingBox.max.x - geometry.boundingBox.min.x };
       };
-      const flag = symbol => {
+      const flag = (symbol, capHeight = null) => {
         const surface = document.createElement('canvas'); surface.width = surface.height = 256;
         const context = surface.getContext('2d');
         context.font = '160px sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
+        const metrics = context.measureText(symbol);
+        const inkHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
         context.fillText(symbol, 128, 140);
+        const side = capHeight ? capHeight * 256 / Math.max(1, inkHeight) : 0.4;
         const texture = new THREE.CanvasTexture(surface); texture.colorSpace = THREE.SRGBColorSpace; textures.add(texture);
-        return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4),
+        return new THREE.Mesh(new THREE.PlaneGeometry(side, side),
           new THREE.MeshBasicMaterial({ map: texture, transparent: true }));
       };
       const addText = (page, label, x, y, color, { right = false, maxWidth = Infinity } = {}) => {
@@ -383,6 +386,9 @@ export function createCapacity(canvas, options) {
         table.add(page);
         addText(page, comparison.title, LEFT, 1, COLORS.text, { maxWidth: 2.1 });
         addText(page, comparison.unit, RIGHT, 1, COLORS.text, { right: true });
+        const divider = new THREE.Mesh(new THREE.BoxGeometry(RIGHT - LEFT, 0.014, 0.008), new THREE.MeshLambertMaterial({ color: 0x9e9e9e }));
+        divider.position.set(0, 1.12, 0);
+        page.add(divider);
         comparison.rows.forEach(([name, price], index) => {
           const y = 1 - (index + 1) * ROW;
           addText(page, name, LEFT, y, index < 2 ? COLORS.green : COLORS.text, { maxWidth: 2.65 });
@@ -393,7 +399,7 @@ export function createCapacity(canvas, options) {
       }
       let cursor = 0;
       const tickItem = (label, symbol) => {
-        if (symbol) { const icon = flag(symbol); icon.position.set(cursor + 0.24, 0.08, 0); ticker.add(icon); cursor += 0.55; }
+        if (symbol) { const capHeight = (font.data.glyphs.G.y_max ?? 1043) / font.data.resolution * 0.2; const icon = flag(symbol, capHeight); icon.position.set(cursor + 0.24, capHeight / 2, 0); ticker.add(icon); cursor += 0.55; }
         const value = text(label, COLORS.text, 0.2);
         value.mesh.position.x = cursor; ticker.add(value.mesh); cursor += value.width;
         const separator = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: COLORS.text }));

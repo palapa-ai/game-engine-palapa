@@ -395,17 +395,21 @@ export function createLaunchControls(element, options) {
     const refreshIcon = () => {
       const g = new THREE.Group();
       const R = 0.38;
-      const arc = new THREE.Mesh(
-        new THREE.TorusGeometry(R, 0.085, 10, 48, Math.PI * 1.45),
-        faceMat,
-      );
-      arc.rotation.z = 0.4 * Math.PI;
+      const arcShape = new THREE.Shape();
+      const start = 0.4 * Math.PI, end = start + Math.PI * 1.45;
+      arcShape.absarc(0, 0, R + 0.085, start, end, false);
+      arcShape.absarc(0, 0, R - 0.085, end, start, true);
+      arcShape.closePath();
+      const extrude = shape => new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: false, curveSegments: 32 }).translate(0, 0, -0.06);
+      const arc = new THREE.Mesh(extrude(arcShape), faceMat);
       g.add(arc);
       const a0 = 0.4 * Math.PI - 0.16;
-      const tip = new THREE.Mesh(
-        new THREE.ConeGeometry(0.18, 0.34, 12),
-        faceMat,
-      );
+      const arrowhead = new THREE.Shape();
+      arrowhead.moveTo(-0.18, -0.17);
+      arrowhead.lineTo(0.18, -0.17);
+      arrowhead.lineTo(0, 0.17);
+      arrowhead.closePath();
+      const tip = new THREE.Mesh(extrude(arrowhead), faceMat);
       tip.position.set(Math.cos(a0) * R, Math.sin(a0) * R, 0);
       tip.rotation.z = a0 - Math.PI;
       g.add(tip);
