@@ -50,8 +50,8 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   const { WebGLPathTracer, GradientEquirectTexture, PhysicalCamera } = await mod();
 
   const env = new GradientEquirectTexture();
-  env.topColor.set(0xbfbfbf);
-  env.bottomColor.set(0x0d0d0d);
+  env.topColor.set(cfg.environmentTop ?? 0xbfbfbf);
+  env.bottomColor.set(cfg.environmentBottom ?? 0x0d0d0d);
   env.update();
   scene.environment = env;
   scene.environmentIntensity = 1;
@@ -81,7 +81,8 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   // rtRes counts 516-wide layout units, so the trace stays put when fxRes moves.
   pt.renderScale = clampRes(cfg.rtRes / cfg.fxRes);
   // Instant chunky preview: one low-res pass composites while full-res accumulates.
-  pt.dynamicLowRes = true;
+  pt.dynamicLowRes = cfg.dynamicLowRes ?? true;
+  pt.renderDelay = cfg.renderDelay ?? 100;
   pt.lowResScale = 0.25;
   pt.fadeDuration = 900;
   // One renderSample() traces one tile, so more tiles = less work per frame.
@@ -102,7 +103,10 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   };
   try { bvh = await bvhWorker(); pt.setBVHWorker(bvh); } catch (e) { /* falls back to the main thread */ }
   const build = () => (bvh ? pt.setSceneAsync(scene, camera) : Promise.resolve(pt.setScene(scene, camera)));
-  try { await build(); }
+  try {
+    await build();
+    while (pt.isCompiling) await new Promise(resolve => setTimeout(resolve, 16));
+  }
   catch (error) {
     cleanup();
     throw error;
@@ -111,8 +115,10 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   return {
     dead: false,
     camera,
-    sample(count) {
+    sample(count, { present = true } = {}) {
       if (this.dead) return false;
+      const renderToCanvas = pt.renderToCanvas;
+      pt.renderToCanvas = present;
       try {
         pt.renderScale = clampRes(cfg.rtRes / cfg.fxRes);
         for (let i = 0; i < (count || 1); i++) pt.renderSample();
@@ -126,7 +132,14 @@ export async function attachTracer(renderer, scene, camera, cfg) {
         this.dead = true;
         scene.environment = null;
         return false;
-      }
+      } finally { pt.renderToCanvas = renderToCanvas; }
+    },
+    setTiles(divisions) {
+      if (pt.tiles.x === divisions && pt.tiles.y === divisions) return;
+      pt.tiles.set(divisions, divisions);
+      // The vendor captures tile dimensions for a whole sample. Restarting
+      // its task applies a smaller tile immediately after an overrun.
+      pt.reset();
     },
     present() {
       const pause = pt.pausePathTracing, fade = pt.fadeDuration;

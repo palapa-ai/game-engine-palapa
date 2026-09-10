@@ -1,6 +1,8 @@
 import * as THREE from './hero/vendor/three.module.min.js';
 import { attachTracer } from './hero/tracer.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
+import { FullScreenQuad } from './hero/vendor/Pass.js';
+import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
 
 const MAX_PIXELS = 3000000;
 const AUTO_SAMPLES = 64;
@@ -12,13 +14,31 @@ export function createPageScene(canvas, options = {}) {
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 0, -1, 0.1, 10000);
   camera.position.z = 2000;
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  [[0.9, -800, 1200, 1800], [0.35, 1000, -300, 1400]].forEach(([power, x, y, z]) => {
-    const light = new THREE.DirectionalLight(0xffffff, power);
-    light.position.set(x, y, z);
-    scene.add(light, light.target);
-  });
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b8b8, 0.7));
 
+  const budget = new FrameBudget();
+  const timer = gpuTimer(renderer.getContext());
+  const staticTarget = new THREE.WebGLRenderTarget(1, 1, {
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthTexture: new THREE.DepthTexture(1, 1),
+  });
+  const staticMaterial = new THREE.ShaderMaterial({
+    uniforms: { colorMap: { value: staticTarget.texture }, depthMap: { value: staticTarget.depthTexture } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
+    fragmentShader: `uniform sampler2D colorMap;
+      uniform sampler2D depthMap;
+      varying vec2 vUv;
+      void main() {
+        gl_FragColor = texture2D(colorMap, vUv);
+        gl_FragDepth = texture2D(depthMap, vUv).r;
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    blending: THREE.NoBlending, depthFunc: THREE.AlwaysDepth, depthTest: true, depthWrite: true,
+  });
+  const staticQuad = new FullScreenQuad(staticMaterial);
+  let staticDirty = true;
   const callbacks = new Set();
   let width = 0, height = 0, ratio = 1;
   let frame = 0, previous = null, tracer = null;
@@ -54,6 +74,12 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceTargetSamples = String(renderSettings.value.samples ?? AUTO_SAMPLES);
     canvas.dataset.traceBounces = String(renderSettings.value.bounces);
     canvas.dataset.sceneCount = '1';
+    canvas.dataset.frameBudgetMs = String(budget.milliseconds);
+    canvas.dataset.traceTiles = `${budget.tiles}×${budget.tiles}`;
+    canvas.dataset.traceGpuTiming = timer.supported ? 'available' : 'unavailable';
+    canvas.dataset.traceSkippedFrames = String(budget.skipped);
+    canvas.dataset.paintGpuMs = budget.paintGpuMs.toFixed(2);
+    canvas.dataset.traceTileGpuMs = budget.rayGpuMs.toFixed(2);
   };
   const wake = () => {
     if (!frame && !disposed && contextAvailable && !document.hidden && width && height) frame = requestAnimationFrame(draw);
@@ -69,21 +95,26 @@ export function createPageScene(canvas, options = {}) {
     dirty = true;
   };
   const rebuild = async () => {
-    if (building || disposed || !traceEnabled) return;
+    if (building || disposed || !traceEnabled || tracer?.compiling) return;
     building = true;
     geometryDirty = false;
     const version = revision;
     tracer?.dispose(); tracer = null;
     collect();
-    const restore = hidden(dynamicRoots);
+    const tracingScene = scene.clone(true);
+    const movingCopies = [];
+    tracingScene.traverse(object => { if (object.userData.dynamic) movingCopies.push(object); });
+    movingCopies.forEach(object => object.removeFromParent());
     phase = 'loading';
     canvas.dataset.traceStartedAt = String(performance.now());
     delete canvas.dataset.traceFinishedAt;
     status();
     try {
       const quality = renderSettings.value;
-      const next = await attachTracer(renderer, scene, camera, {
-        bounces: quality.bounces, rtRes: 1, fxRes: 1, tiles: 4,
+      const next = await attachTracer(renderer, tracingScene, camera, {
+        bounces: quality.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles,
+        dynamicLowRes: false, renderDelay: 0,
+        environmentTop: 0xd8d8d8, environmentBottom: 0xb8b8b8,
       });
       if (disposed || version !== revision) next.dispose();
       else {
@@ -93,18 +124,35 @@ export function createPageScene(canvas, options = {}) {
     } catch (error) {
       if (!disposed && version === revision) fail(error);
     } finally {
-      restore();
       building = false;
       dirty = true;
       status();
       wake();
     }
   };
-  const raster = () => {
+  const cacheStatic = () => {
+    if (!staticDirty) return;
+    const restore = hidden(dynamicRoots);
+    renderer.setScissorTest(false);
+    renderer.setRenderTarget(staticTarget);
+    renderer.autoClear = true;
+    try { renderer.render(scene, camera); staticDirty = false; }
+    finally { restore(); renderer.setRenderTarget(null); }
+  };
+  const present = () => {
+    cacheStatic();
     renderer.setScissorTest(false);
     renderer.setRenderTarget(null);
     renderer.autoClear = true;
-    renderer.render(scene, camera);
+    const traced = tracer && !geometryDirty && tracer.samples >= 1;
+    if (traced) tracer.present();
+    else renderer.clear();
+    renderer.autoClear = false;
+    // Copy cached static depth alongside its preview, or behind the traced
+    // color. Moving objects still occlude correctly without redrawing the wall.
+    staticMaterial.colorWrite = !traced;
+    staticQuad.render(renderer);
+    staticMaterial.colorWrite = true;
   };
   const moving = () => {
     if (!dynamicRoots.some(group => group.visible)) return;
@@ -115,21 +163,6 @@ export function createPageScene(canvas, options = {}) {
     renderer.setScissor(0, Math.floor((height - bottom) * scale), canvas.width, Math.ceil((bottom - top) * scale));
     renderer.setScissorTest(true);
     renderer.autoClear = false;
-    renderer.clearDepth();
-    const restoreDynamic = hidden(dynamicRoots);
-    const materials = new Map();
-    staticMeshes.forEach(mesh => {
-      const values = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      values.forEach(material => {
-        if (!materials.has(material)) materials.set(material, material.colorWrite);
-        material.colorWrite = false;
-      });
-    });
-    try { renderer.render(scene, camera); }
-    finally {
-      materials.forEach((value, material) => { material.colorWrite = value; });
-      restoreDynamic();
-    }
     const restoreStatic = hidden(staticMeshes);
     try { renderer.render(scene, camera); }
     finally {
@@ -140,39 +173,49 @@ export function createPageScene(canvas, options = {}) {
   };
   function draw(time) {
     frame = 0;
-    if (disposed || !contextAvailable || document.hidden) { previous = null; return; }
+    if (disposed || !contextAvailable || document.hidden) { previous = null; budget.resetCadence(); return; }
+    budget.begin(time);
+    for (const result of timer.poll()) {
+      if (result.kind === 'paint') budget.paint(result.milliseconds);
+      else budget.ray(null, result.milliseconds, result.tiles);
+    }
     const delta = previous === null ? 0 : Math.min(0.05, (time - previous) / 1000);
     previous = time;
-    if (!building) {
-      [...callbacks].forEach(callback => { if (callbacks.has(callback)) notify(callback, { time, delta }); });
-      try {
-        if (!tracer || geometryDirty) raster();
-        else {
-          renderer.setScissorTest(false);
-          renderer.autoClear = true;
-          if (phase !== 'complete') {
-            if (!tracer.sample(1)) throw Error('Page ray tracing unavailable');
-            if (tracer.samples >= (renderSettings.value.samples ?? AUTO_SAMPLES)) {
-              phase = 'complete';
-              canvas.dataset.traceFinishedAt = String(performance.now());
-            }
+    [...callbacks].forEach(callback => { if (callbacks.has(callback)) notify(callback, { time, delta }); });
+    try {
+      timer.begin('paint');
+      try { present(); moving(); }
+      finally { timer.end(); }
+      dirty = false;
+      if (!firstFrame) { firstFrame = true; notify(options.onFirstFrame); }
+      if (tracer && !building && !geometryDirty && phase !== 'complete' && !tracer.compiling) {
+        if (budget.allows(performance.now(), timer.busy)) {
+          tracer.setTiles(budget.tiles);
+          const started = performance.now(), divisions = budget.tiles;
+          timer.begin('ray', { tiles: divisions });
+          let sampled;
+          const previousSamples = tracer.samples;
+          try { sampled = tracer.sample(1, { present: false }); }
+          finally { timer.end(); }
+          budget.submitted();
+          if (tracer.samples > previousSamples) budget.ray(performance.now() - started);
+          if (!sampled) throw Error('Page ray tracing unavailable');
+          dirty = true;
+          if (tracer.samples >= (renderSettings.value.samples ?? AUTO_SAMPLES)) {
+            phase = 'complete';
+            canvas.dataset.traceFinishedAt = String(performance.now());
           }
-          if (phase === 'complete') tracer.present();
-          moving();
         }
-        status();
-        dirty = false;
-        if (!firstFrame) {
-          firstFrame = true;
-          notify(options.onFirstFrame);
-        }
-      } catch (error) { fail(error); }
-      if (geometryDirty && traceEnabled) void rebuild();
-    }
+      }
+      status();
+    } catch (error) { fail(error); }
+    budget.finish(performance.now());
+    if (geometryDirty && traceEnabled) void rebuild();
     if (building || geometryDirty || dirty || callbacks.size || (tracer && phase !== 'complete')) wake();
   }
   const invalidate = (change = {}) => {
     dirty = true;
+    if (!change.dynamic) staticDirty = true;
     if (change.geometry !== false && !change.dynamic) {
       revision++;
       geometryDirty = true;
@@ -189,6 +232,8 @@ export function createPageScene(canvas, options = {}) {
     const scale = Math.min(ratio * renderSettings.value.resolution,
       Math.sqrt(MAX_PIXELS / (width * height)), renderer.capabilities.maxTextureSize / Math.max(width, height));
     renderer.setSize(Math.max(1, Math.floor(width * scale)), Math.max(1, Math.floor(height * scale)), false);
+    staticTarget.setSize(canvas.width, canvas.height);
+    staticDirty = true;
     canvas.style.width = `${width}px`; canvas.style.height = `${height}px`;
     camera.left = -width / 2; camera.right = width / 2;
     camera.top = 0; camera.bottom = -height;
@@ -203,6 +248,7 @@ export function createPageScene(canvas, options = {}) {
   const unsubscribe = renderSettings.subscribe(qualityChanged);
   const visibility = () => {
     previous = null;
+    budget.resetCadence();
     if (document.hidden) { cancelAnimationFrame(frame); frame = 0; }
     else { dirty = true; wake(); }
   };
@@ -258,6 +304,10 @@ export function createPageScene(canvas, options = {}) {
         (Array.isArray(object.material) ? object.material : [object.material]).filter(Boolean).forEach(material => resources.add(material));
       });
       resources.forEach(resource => resource.dispose());
+      timer.dispose();
+      staticTarget.dispose();
+      staticQuad.dispose();
+      staticMaterial.dispose();
       scene.clear();
       renderer.dispose();
     },
