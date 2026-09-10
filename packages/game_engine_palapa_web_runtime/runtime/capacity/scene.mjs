@@ -25,6 +25,8 @@ export function createCapacity(canvas, options) {
   const pages = [], lighting = [];
   let currentPage = 0, transition = null, transitionStyle = 0;
   let width = 0, height = 0, ratio = 1, narrow = false, worldWidth = 1;
+  let tickerWidth = 0;
+  const tickerClip = [new THREE.Plane(new THREE.Vector3(1, 0, 0)), new THREE.Plane(new THREE.Vector3(-1, 0, 0))];
   let tableScale = 1, tickerScale = 1, tickerBottom = 0;
   let spinSpeed = SPIN_SPEED, photorealistic = true;
   const textures = new Set();
@@ -219,6 +221,7 @@ export function createCapacity(canvas, options) {
     const worldHeight = 2 * Math.tan(Math.PI / 12) * camera.position.z;
     worldWidth = worldHeight * camera.aspect;
     const perPixel = worldHeight / height;
+    tickerClip.forEach(plane => { plane.constant = Math.min(width, tickerWidth || width) * perPixel / 2; });
     tableScale = narrow ? Math.min(worldWidth * 0.96 / (RIGHT - LEFT), 21 * worldWidth / width / FONT_SIZE) : 1;
     tickerScale = narrow ? Math.min(2, 21 * worldWidth / width / 0.2) : 1;
     const tableRadius = (RIGHT - LEFT) * tableScale * Math.cos(0.25) / 2;
@@ -276,6 +279,7 @@ export function createCapacity(canvas, options) {
       if (dead) return;
       const font = new FontLoader().parse(fontJson);
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.localClippingEnabled = true;
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
       scene.add(new THREE.AmbientLight(0x9bb8da, 0.35));
@@ -432,6 +436,7 @@ export function createCapacity(canvas, options) {
         if (copy === 0) period = cursor;
       }
       ticker.visible = models.length > 0;
+      ticker.traverse(object => { if (object.material) object.material.clippingPlanes = tickerClip; });
       tickerBottom = new THREE.Box3().setFromObject(ticker).min.y;
       ready = true;
       announce(); layout(); refresh();
@@ -506,10 +511,10 @@ export function createCapacity(canvas, options) {
     textures.forEach(texture => texture.dispose()); renderer?.dispose(); renderer?.forceContextLoss();
   }
   return {
-    resize(cssWidth, cssHeight, pixelRatio, isNarrow) {
+    resize(cssWidth, cssHeight, pixelRatio, isNarrow, tickerCssWidth = cssWidth) {
       if (dead || cssWidth <= 0 || cssHeight <= 0) return;
-      if (width === cssWidth && height === cssHeight && ratio === pixelRatio && narrow === isNarrow) return;
-      width = cssWidth; height = cssHeight; ratio = pixelRatio; narrow = isNarrow; layout();
+      if (width === cssWidth && height === cssHeight && ratio === pixelRatio && narrow === isNarrow && tickerWidth === tickerCssWidth) return;
+      width = cssWidth; height = cssHeight; ratio = pixelRatio; narrow = isNarrow; tickerWidth = tickerCssWidth; layout();
     },
     dispose,
   };

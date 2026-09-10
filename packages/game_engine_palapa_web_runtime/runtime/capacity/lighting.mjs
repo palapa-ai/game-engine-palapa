@@ -30,6 +30,7 @@ export function lightMovingGroup(canvas, group, camera, height, render) {
           color: 0xffffff, vertexColors: true, map: original.map,
           transparent: original.transparent, opacity: original.opacity,
           alphaTest: original.alphaTest, side: original.side,
+          clippingPlanes: original.clippingPlanes,
         });
         pair.lit = true;
       }
