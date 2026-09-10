@@ -123,7 +123,7 @@ export function createCapacity(canvas, options) {
     const active = touch;
     touch = null;
     if (active && canvas.hasPointerCapture(active.id)) canvas.releasePointerCapture(active.id);
-    canvas.style.cursor = 'default';
+    canvas.style.cursor = 'pointer';
   };
   const cancel = event => {
     if (touch?.id !== event.pointerId) return;
@@ -154,7 +154,7 @@ export function createCapacity(canvas, options) {
   };
   const move = event => {
     if (!touch) {
-      canvas.style.cursor = hitsGlobe(event) ? 'grab' : 'default';
+      canvas.style.cursor = 'pointer';
       return;
     }
     if (event.pointerId !== touch.id) return;
@@ -432,7 +432,7 @@ export function createCapacity(canvas, options) {
   canvas.setAttribute('role', 'button');
   canvas.setAttribute('aria-keyshortcuts', 'Enter Space ArrowRight G');
   canvas.setAttribute('aria-label', 'Network capacity is loading.');
-  canvas.style.cursor = 'default';
+  canvas.style.cursor = 'pointer';
   canvas.style.touchAction = 'pinch-zoom';
   canvas.addEventListener('pointerdown', down);
   canvas.addEventListener('pointermove', move);

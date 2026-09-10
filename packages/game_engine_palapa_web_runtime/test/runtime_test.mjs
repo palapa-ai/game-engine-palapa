@@ -5,8 +5,30 @@ import { transitionPages } from '../runtime/capacity/transitions.mjs';
 import * as THREE from '../runtime/hero/vendor/three.module.min.js';
 import { FontLoader } from '../runtime/hero/vendor/FontLoader.js';
 import { layoutDocument } from '../runtime/hero/text3d.mjs';
+import { revealPage } from '../runtime/hero/reveal.mjs';
 
 const root = new URL('../runtime/', import.meta.url);
+test('scanline reveal releases the page after animation, cancellation, or reduced motion', async () => {
+  for (const mode of ['animated', 'cancelled', 'reduced']) {
+    let removed = false, animated = false;
+    globalThis.matchMedia = () => ({matches: mode === 'reduced'});
+    const cover = {
+      replaceChildren() {}, setAttribute() {},
+      remove() { removed = true; },
+      animate(frames, timing) {
+        animated = true;
+        assert.equal(removed, false);
+        assert.deepEqual(frames.map(frame => frame.clipPath), ['inset(0% 0 0 0)', 'inset(100% 0 0 0)']);
+        assert.match(timing.easing, /^steps\(/);
+        return { finished: mode === 'cancelled' ? Promise.reject(Error('cancelled')) : Promise.resolve() };
+      },
+    };
+    if (mode === 'cancelled') await assert.rejects(revealPage(cover), /cancelled/);
+    else await revealPage(cover);
+    assert.equal(removed, true);
+    assert.equal(animated, mode !== 'reduced');
+  }
+});
 test('each table transition reveals exactly one page and restores its pose', () => {
   for (let style = 0; style < 5; style++) {
     const a = new THREE.Group(), b = new THREE.Group();

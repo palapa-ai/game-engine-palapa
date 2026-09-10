@@ -243,7 +243,7 @@ export function createText3d(canvas, options) {
       anchor.href = entry.href;
       anchor.textContent = entry.text;
       anchor.dataset.text3dLink = String(index);
-      anchor.style.cssText = "position:absolute;display:block;pointer-events:auto;color:transparent;background:transparent;white-space:nowrap;box-sizing:border-box;";
+      anchor.style.cssText = "position:absolute;display:block;pointer-events:auto;cursor:pointer;color:transparent;background:transparent;white-space:nowrap;box-sizing:border-box;";
       anchor.style.left = Math.max(0, entry.x - 4) + "px";
       anchor.style.top = Math.max(0, entry.baseline - entry.size - 4) + "px";
       anchor.style.width = Math.min(width - Math.max(0, entry.x - 4), entry.width + 8) + "px";
