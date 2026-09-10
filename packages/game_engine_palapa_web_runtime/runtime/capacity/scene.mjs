@@ -7,6 +7,7 @@ import { LineMaterial } from '../hero/vendor/LineMaterial.js';
 
 import { transitionPages } from './transitions.mjs';
 import { lightMovingGroup } from './lighting.mjs';
+import { antiqueMap, antiqueMount } from './antique-globe.mjs';
 
 const COLORS = { text: 0xffffff, grey: 0xffffff, green: 0x73c991 };
 const LEFT = -0.36;
@@ -22,7 +23,7 @@ export function createCapacity(canvas, options) {
   const host = options.host;
   let stopTick = null;
   let localHeight = 1;
-  let renderer, scene, camera, globe, globeBody, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, table, ticker;
+  let renderer, scene, camera, globe, globeBody, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, antiqueMaterial, meridian, table, ticker;
   let dead = false, ready = false, visible = false, frame = 0, previous = null;
   let elapsed = 0, period = 0;
   const pages = [], lighting = [];
@@ -31,7 +32,8 @@ export function createCapacity(canvas, options) {
   let tickerWidth = 0;
   const tickerClip = [new THREE.Plane(new THREE.Vector3(1, 0, 0)), new THREE.Plane(new THREE.Vector3(-1, 0, 0))];
   let tableScale = 1, tickerScale = 1, tickerBottom = 0;
-  let spinSpeed = SPIN_SPEED, photorealistic = true;
+  let spinSpeed = SPIN_SPEED, globeStyle = 0;
+  const globeStyles = ['photorealistic', 'black and white', 'antique'];
   const textures = new Set();
   const materialsToDispose = new Set();
   const lineMaterials = [];
@@ -70,14 +72,15 @@ export function createCapacity(canvas, options) {
   const announce = () => {
     const content = currentPage ? `${comparisons[currentPage - 1].title}, ${comparisons[currentPage - 1].unit}: ${comparisons[currentPage - 1].rows.map(row => row.join(', ')).join('; ')}` : countries.map((row, index) => `${index + 1}. ${row.country}, ${row.megawattHours} MWh`).join('; ') + `; Total ${total.toLocaleString('en-US')} MWh.`;
     const modelNames = models.length ? `${models.map(row => row.name).join('; ')}.` : '';
-    canvas.setAttribute('aria-label', `Country capacity. ${content} ${modelNames} Globe: ${photorealistic ? 'photorealistic' : 'black and white'}. Tap the globe or press G to switch globe views. Tap the table or press Enter, Space, or ArrowRight for the next table. Drag or flick the globe to spin it.`);
+    canvas.setAttribute('aria-label', `Country capacity. ${content} ${modelNames} Globe: ${globeStyles[globeStyle]}. Tap the globe or press G to switch globe views. Tap the table or press Enter, Space, or ArrowRight for the next table. Drag or flick the globe to spin it.`);
   };
   const toggleGlobe = () => {
     if (!ready || dead) return;
-    photorealistic = !photorealistic;
-    globeBody.material = photorealistic ? (globeBody.userData.tracedPhotoMaterial || photoMaterial) : outlineMaterial;
-    coastlines.visible = rim.visible = !photorealistic;
-    atmosphere.visible = photorealistic;
+    globeStyle = (globeStyle + 1) % globeStyles.length;
+    globeBody.material = [globeBody.userData.tracedPhotoMaterial || photoMaterial, outlineMaterial, antiqueMaterial][globeStyle];
+    coastlines.visible = rim.visible = globeStyle === 1;
+    atmosphere.visible = globeStyle === 0;
+    meridian.visible = globeStyle === 2;
     announce();
     render();
   };
@@ -276,6 +279,7 @@ export function createCapacity(canvas, options) {
     globe.position.set(narrow ? 0 : -2.5, narrow ? worldHeight / 2 - 18 * perPixel - globeRadius : 0.25, 0);
     globe.scale.setScalar(globeScale);
     rim.position.copy(globe.position); rim.scale.copy(globe.scale);
+    meridian.position.copy(globe.position); meridian.scale.copy(globe.scale);
     table.scale.setScalar(tableScale);
     table.position.set(narrow ? -(RIGHT + LEFT) / 2 * tableScale : 0.5,
       narrow ? globe.position.y - globeRadius - 50 * perPixel - 1.18 * tableScale : 0.3, 0);
@@ -342,8 +346,13 @@ export function createCapacity(canvas, options) {
       earth.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
       photoMaterial = new THREE.MeshPhongMaterial({ map: earth, specular: 0x141a22, shininess: 14 });
       outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      const parchment = antiqueMap(rings);
+      parchment.anisotropy = earth.anisotropy; textures.add(parchment);
+      antiqueMaterial = new THREE.MeshStandardMaterial({ map: parchment, roughness: 0.72, metalness: 0 });
+      materialsToDispose.add(antiqueMaterial);
+      meridian = antiqueMount(); meridian.visible = false; scene.add(meridian);
       materialsToDispose.add(photoMaterial); materialsToDispose.add(outlineMaterial);
-      globeBody = new THREE.Mesh(new THREE.SphereGeometry(0.99, 96, 64), photorealistic ? photoMaterial : outlineMaterial);
+      globeBody = new THREE.Mesh(new THREE.SphereGeometry(0.99, 96, 64), photoMaterial);
       globe.add(globeBody);
       const vector = (longitude, latitude) => {
         const lon = longitude * Math.PI / 180, lat = latitude * Math.PI / 180;
@@ -362,7 +371,7 @@ export function createCapacity(canvas, options) {
         return new LineSegments2(geometry, material);
       };
       coastlines = lines(land, COLORS.text); globe.add(coastlines);
-      coastlines.visible = !photorealistic;
+      coastlines.visible = globeStyle === 1;
       const circle = [];
       for (let i = 0; i < 128; i++) {
         for (const a of [i, i + 1]) circle.push(Math.cos(a / 128 * Math.PI * 2) * 0.99, Math.sin(a / 128 * Math.PI * 2) * 0.99, 0);
@@ -370,7 +379,7 @@ export function createCapacity(canvas, options) {
       rim = lines(circle, 0x3a3a3a); scene.add(rim);
       rim.name = 'capacity-rim';
       if (host) rim.userData.dynamic = true;
-      rim.visible = !photorealistic;
+      rim.visible = globeStyle === 1;
       atmosphere = new THREE.Mesh(new THREE.SphereGeometry(1.018, 64, 48),
         new THREE.ShaderMaterial({
           transparent: true, depthWrite: false, side: THREE.BackSide,
@@ -393,7 +402,7 @@ export function createCapacity(canvas, options) {
               gl_FragColor = vec4(0.20, 0.52, 1.0, glow * 0.55);
             }`,
         }));
-      atmosphere.visible = photorealistic; globe.add(atmosphere);
+      atmosphere.visible = globeStyle === 0; globe.add(atmosphere);
       table = new THREE.Group(); table.rotation.y = 0.25; scene.add(table);
       ticker = new THREE.Group(); scene.add(ticker);
       table.name = 'capacity-table'; ticker.name = 'capacity-ticker';
@@ -503,7 +512,7 @@ export function createCapacity(canvas, options) {
         lighting.push(lightMovingGroup(canvas, group, camera, height || 767, () => {
           if (group === globeBody) {
             globeBody.userData.tracedPhotoMaterial ||= globeBody.material;
-            if (!photorealistic) globeBody.material = outlineMaterial;
+            if (globeStyle !== 0) globeBody.material = globeStyle === 1 ? outlineMaterial : antiqueMaterial;
           }
           render();
         }));
