@@ -34,7 +34,9 @@ def compile_scene(source, output):
                 raise ValueError(f'{path}: expected UsdPreviewSurface material')
             for name, field in [('diffuseColor', 'color'), ('roughness', 'roughness'),
                                 ('metallic', 'metalness'), ('opacity', 'opacity'),
-                                ('emissiveColor', 'emissive')]:
+                                ('emissiveColor', 'emissive'), ('ior', 'ior'),
+                                ('clearcoat', 'clearcoat'), ('clearcoatRoughness', 'clearcoatRoughness'),
+                                ('opacityThreshold', 'alphaTest'), ('opacityMode', 'opacityMode')]:
                 value = shader.GetInput(name)
                 if not value:
                     continue
@@ -43,6 +45,15 @@ def compile_scene(source, output):
                 value = value.Get()
                 if value is not None:
                     result[field] = list(value) if name.endswith('Color') else value
+            mode = result.pop('opacityMode', 'transparent')
+            if mode not in ('transparent', 'presence'):
+                raise ValueError(f'{path}: unsupported opacityMode {mode}')
+            # USD translucent surfaces retain Fresnel reflection; they are not
+            # alpha-faded surfaces. A nonzero threshold instead means a cutout.
+            if result.get('alphaTest', 0) == 0 and mode == 'transparent' and result['opacity'] < 1:
+                result['transmission'] = 1 - result['opacity']
+                result['opacity'] = 1
+                result.setdefault('ior', 1.5)
         index = len(materials)
         material_indices[path] = index
         materials.append(result)

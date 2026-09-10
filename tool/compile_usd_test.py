@@ -49,7 +49,42 @@ class SceneCompilerTest(unittest.TestCase):
             indices = struct.unpack_from('<III', binary, geometry['index']['offset'])
             self.assertEqual(indices, (0, 1, 2))
             self.assertEqual(document['materials'][0]['roughness'], .75)
-            self.assertEqual(document['materials'][0]['opacity'], .5)
+            self.assertEqual(document['materials'][0]['opacity'], 1)
+            self.assertEqual(document['materials'][0]['transmission'], .5)
+            self.assertEqual(document['materials'][0]['ior'], 1.5)
+
+    def test_glass_presence_and_cutout_have_distinct_surface_responses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'materials.usda'
+            output = Path(directory) / 'materials.scene.json'
+            stage = Usd.Stage.CreateNew(str(source))
+            UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
+            for index, (mode, threshold) in enumerate([('transparent', 0), ('presence', 0), ('transparent', .3)]):
+                mesh = UsdGeom.Mesh.Define(stage, f'/Mesh_{index}')
+                mesh.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (0, 1, 0)])
+                mesh.CreateFaceVertexCountsAttr([3])
+                mesh.CreateFaceVertexIndicesAttr([0, 1, 2])
+                material = UsdShade.Material.Define(stage, f'/Material_{index}')
+                shader = UsdShade.Shader.Define(stage, f'/Material_{index}/Surface')
+                shader.CreateIdAttr('UsdPreviewSurface')
+                shader.CreateInput('opacity', Sdf.ValueTypeNames.Float).Set(.2)
+                shader.CreateInput('opacityMode', Sdf.ValueTypeNames.Token).Set(mode)
+                shader.CreateInput('opacityThreshold', Sdf.ValueTypeNames.Float).Set(threshold)
+                shader.CreateInput('ior', Sdf.ValueTypeNames.Float).Set(1.52)
+                shader.CreateInput('clearcoat', Sdf.ValueTypeNames.Float).Set(.25)
+                material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), 'surface')
+                UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+            stage.GetRootLayer().Save()
+            compile_scene(source, output)
+            glass, presence, cutout = json.loads(output.read_text())['materials']
+            self.assertAlmostEqual(glass['transmission'], .8)
+            self.assertEqual(glass['opacity'], 1)
+            self.assertAlmostEqual(glass['ior'], 1.52)
+            self.assertEqual(glass['clearcoat'], .25)
+            self.assertNotIn('transmission', presence)
+            self.assertAlmostEqual(presence['opacity'], .2)
+            self.assertNotIn('transmission', cutout)
+            self.assertAlmostEqual(cutout['alphaTest'], .3)
 
 
 if __name__ == '__main__':

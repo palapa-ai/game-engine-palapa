@@ -10,12 +10,24 @@ export async function loadSceneAsset(url, { signal } = {}) {
   const binaryResponse = await fetch(new URL(asset.buffer, response.url || url), { signal });
   if (!binaryResponse.ok) throw new Error(`Scene geometry unavailable: ${binaryResponse.status}`);
   const binary = await binaryResponse.arrayBuffer();
-  const materials = asset.materials.map(value => new THREE.MeshStandardMaterial({
-    name: value.name, color: new THREE.Color(...value.color),
-    roughness: value.roughness, metalness: value.metalness,
-    emissive: new THREE.Color(...(value.emissive || [0, 0, 0])),
-    opacity: value.opacity, transparent: value.opacity < 1,
-  }));
+  const materials = asset.materials.map(value => {
+    const physical = value.transmission > 0 || value.ior !== undefined || value.clearcoat > 0;
+    const Material = physical ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    return new Material({
+      name: value.name, color: new THREE.Color(...value.color),
+      roughness: value.roughness, metalness: value.metalness,
+      emissive: new THREE.Color(...(value.emissive || [0, 0, 0])),
+      opacity: value.opacity, transparent: value.opacity < 1 && !(value.alphaTest > 0),
+      alphaTest: value.alphaTest || 0,
+      ...(physical ? {
+        transmission: value.transmission || 0, ior: value.ior ?? 1.5,
+        // Transmissive USD meshes describe a volume. The path tracer uses the
+        // actual front/back geometry to compute refraction through that volume.
+        thickness: value.transmission > 0 ? 1 : 0,
+        clearcoat: value.clearcoat || 0, clearcoatRoughness: value.clearcoatRoughness ?? 0.01,
+      } : {}),
+    });
+  });
   const sideMaterials = new Map();
   const material = (index, doubleSided) => {
     if (!doubleSided) return materials[index];
