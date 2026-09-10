@@ -138,7 +138,7 @@ function prepare(data) {
     epsilon: Math.max(1e-6, diagonal * 1e-6), far: Math.max(1, diagonal * 2),
     cursor: data.cursor, bands: data.bands, totalBands, rays: data.rays,
     dirty: new Set(), ray: new THREE.Ray(), direction: new THREE.Vector3(),
-    timer: null,
+    timer: null, background: !!data.background,
   };
 }
 
@@ -213,7 +213,7 @@ function step() {
       job.bands = job.totalBands;
       flush(job, "complete");
       free();
-    } else job.timer = setTimeout(step, 0);
+    } else job.timer = setTimeout(step, job.background ? 50 : 0);
   } catch (_) { fail(job.id); }
 }
 
@@ -226,6 +226,7 @@ self.onmessage = ({ data }) => {
       current.timer = setTimeout(step, 0);
     } catch (_) { fail(data.id); }
   } else if (current?.id === data.id) {
+    if (data.type === "priority") current.background = !!data.background;
     if (data.type === "pause") flush(current, "paused");
     if (data.type === "pause" || data.type === "cancel") free();
   }

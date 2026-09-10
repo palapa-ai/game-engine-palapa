@@ -86,6 +86,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
   };
 
   let raf = 0;
+  let backgroundTimer = 0;
   let disposed = false;
   let renderer = null;
   let built = null;      // the raster scene, once the font is in
@@ -115,9 +116,14 @@ export function createSceneSurface(canvas, definition, options = {}) {
   let pending = null;
 
   canvas.dataset.staticTrace = "hero";
-  const active = () => !disposed && state.phase !== "failed" && foreground && visible && !document.hidden;
+  const active = () => !disposed && state.phase !== "failed" && foreground && !document.hidden;
   const wake = () => {
-    if (!raf && active()) raf = requestAnimationFrame(frame);
+    if (raf || backgroundTimer || !active()) return;
+    if (visible) raf = requestAnimationFrame(frame);
+    else backgroundTimer = setTimeout(() => {
+      backgroundTimer = 0;
+      if (active()) raf = requestAnimationFrame(frame);
+    }, 150);
   };
   const diagnostic = () => {
     canvas.dataset.render = state.phase === "ready" ? "complete"
@@ -188,7 +194,11 @@ export function createSceneSurface(canvas, definition, options = {}) {
   };
   const progress = () => { diagnostic(); try { options.onProgress?.(state.samples, state.phase); } catch (e) { /* ditto */ } };
 
-  const stop = () => { if (raf) cancelAnimationFrame(raf); raf = 0; };
+  const stop = () => {
+    if (raf) cancelAnimationFrame(raf);
+    clearTimeout(backgroundTimer);
+    raf = backgroundTimer = 0;
+  };
 
   // ---- capability probe -------------------------------------------------
 
@@ -229,6 +239,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
 
     raster();
     state.timings.firstFrameMs = since();
+    try { options.onFirstFrame?.(); } catch (_) {}
     state.tier = "webgl-tracer";
     state.phase = "loading";
     progress();
@@ -451,7 +462,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
       return;
     }
     if (state.samples < opt.cleanSamples) {
-      trace(governor(t));
+      trace(visible ? governor(t) : 1);
       state.samples = tracer.samples;
       state.phase = "tracing";
       progress();
@@ -620,6 +631,7 @@ export function createSceneSurface(canvas, definition, options = {}) {
   const pageshow = () => { foreground = true; visibility(); };
   const observer = new IntersectionObserver((entries) => {
     visible = entries.at(-1).isIntersecting;
+    stop();
     visibility();
   });
   observer.observe(canvas);

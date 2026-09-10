@@ -18,7 +18,7 @@ const visible = (canvas) => {
     bounds.right > 0 && bounds.top < innerHeight && bounds.left < innerWidth;
 };
 const canRun = (client) => !client.disposed && !client.done && !client.failed &&
-  client.visible && !document.hidden && foreground;
+  !document.hidden && foreground;
 const stopWatchdog = () => { clearTimeout(watchdog); watchdog = null; };
 const shutdown = () => {
   stopWatchdog();
@@ -141,7 +141,7 @@ const payload = (client) => {
   });
   const projection = new THREE.Matrix4().multiplyMatrices(client.camera.projectionMatrix, client.camera.matrixWorldInverse);
   return [{
-    type: "start", id: client.id, meshes, ambient, lights,
+    type: "start", id: client.id, meshes, ambient, lights, background: !client.visible,
     projection: projection.toArray(), eye: client.camera.getWorldPosition(new THREE.Vector3()).toArray(),
     height: client.height, bandHeight: BAND_HEIGHT, cursor: client.cursor,
     rays: client.rays, bands: client.bands,
@@ -150,17 +150,19 @@ const payload = (client) => {
 const pump = () => {
   scheduled = null;
   if (active) {
-    if (!canRun(active) && !active.pausing) {
+    const preempt = !active.visible && [...clients].some(client => client.visible && canRun(client));
+    if ((!canRun(active) || preempt) && !active.pausing) {
       active.pausing = true;
       worker?.postMessage({ type: "pause", id: active.id });
       watch();
-    }
+    } else if (!active.pausing) worker?.postMessage({ type: "priority", id: active.id, background: !active.visible });
     return;
   }
   const next = [...clients].filter(canRun)
-    .sort((a, b) => a.canvas.getBoundingClientRect().top - b.canvas.getBoundingClientRect().top)[0];
+    .sort((a, b) => Number(b.visible) - Number(a.visible) || a.canvas.getBoundingClientRect().top - b.canvas.getBoundingClientRect().top)[0];
   if (!next) { shutdown(); return; }
   active = next;
+  next.canvas.dataset.tracePriority = next.visible ? "visible" : "background";
   try {
     connect();
     const [data, transfer] = payload(next);
@@ -169,16 +171,18 @@ const pump = () => {
   } catch (_) { error("lighting-unavailable"); }
 };
 function schedule() {
-  if (scheduled === null) scheduled = setTimeout(pump, 0);
+  if (scheduled === null) scheduled = setTimeout(pump, [...clients].some(client => client.visible && canRun(client)) ? 0 : 150);
 }
 const visibility = () => {
   clients.forEach((client) => {
     if (!client.observer) client.visible = visible(client.canvas);
-    client.canvas.dataset.tracePaused = String(!foreground || document.hidden || !client.visible);
+    client.canvas.dataset.tracePaused = String(!foreground || document.hidden);
+    client.canvas.dataset.tracePriority = client.visible ? "visible" : "background";
     if (client.dirty && client.visible && !document.hidden && foreground) {
       try { client.render(); client.dirty = false; } catch (_) { client.failed = true; client.canvas.dataset.render = "fallback"; }
     }
   });
+  clearTimeout(scheduled); scheduled = null;
   schedule();
 };
 
@@ -236,7 +240,7 @@ export function traceStaticLighting(canvas, scene, camera, height, revision, ren
     observer?.observe(canvas);
   } catch (_) { observer?.disconnect(); observer = null; }
   client.observer = observer;
-  canvas.dataset.tracePaused = String(!foreground || document.hidden || !client.visible);
+  canvas.dataset.tracePaused = String(!foreground || document.hidden);
   schedule();
   return {
     dispose() {

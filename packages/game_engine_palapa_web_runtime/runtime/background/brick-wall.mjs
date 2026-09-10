@@ -277,7 +277,13 @@ export function mountBrickWall(host) {
         traced.style.visibility = '';
         host.dataset.render = 'complete';
       }
-      else frame = requestAnimationFrame(run);
+      else {
+        const bounds = host.getBoundingClientRect();
+        const nextTop = bounds.top + queue.top * bounds.height / queue.height;
+        if (nextTop > innerHeight || nextTop + queue.bandHeight * bounds.height / queue.height < 0)
+          timer = setTimeout(() => { timer = 0; frame = requestAnimationFrame(run); }, 120);
+        else frame = requestAnimationFrame(run);
+      }
     } catch (_) { fail(); }
   }
   function resume() {

@@ -45,7 +45,7 @@ export function createCapacity(canvas, options) {
   };
   const announce = () => {
     const content = currentPage ? `${comparisons[currentPage - 1].title}, ${comparisons[currentPage - 1].unit}: ${comparisons[currentPage - 1].rows.map(row => row.join(', ')).join('; ')}` : countries.map((row, index) => `${index + 1}. ${row.country}, ${row.megawattHours} MWh`).join('; ') + `; Total ${total.toLocaleString('en-US')} MWh.`;
-    const modelNames = models.length ? `${options.modelsLabel} ${models.map(row => row.name).join('; ')}.` : '';
+    const modelNames = models.length ? `${models.map(row => row.name).join('; ')}.` : '';
     canvas.setAttribute('aria-label', `Country capacity. ${content} ${modelNames} Globe: ${photorealistic ? 'photorealistic' : 'black and white'}. Tap the globe or press G to switch globe views. Tap the table or press Enter, Space, or ArrowRight for the next table. Drag or flick the globe to spin it.`);
   };
   const toggleGlobe = () => {
@@ -393,14 +393,13 @@ export function createCapacity(canvas, options) {
       }
       let cursor = 0;
       const tickItem = (label, symbol) => {
+        if (symbol) { const icon = flag(symbol); icon.position.set(cursor + 0.24, 0.08, 0); ticker.add(icon); cursor += 0.55; }
         const value = text(label, COLORS.text, 0.2);
         value.mesh.position.x = cursor; ticker.add(value.mesh); cursor += value.width;
-        if (symbol) { const icon = flag(symbol); icon.position.set(cursor + 0.24, 0.08, 0); ticker.add(icon); cursor += 0.5; }
         const separator = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: COLORS.text }));
         separator.position.set(cursor + 0.2, 0.08, 0); ticker.add(separator); cursor += 0.4;
       };
       for (let copy = 0; copy < 3; copy++) {
-        tickItem(options.modelsLabel);
         models.forEach(row => tickItem(row.name, row.flag));
         if (copy === 0) period = cursor;
       }
