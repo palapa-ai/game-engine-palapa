@@ -4,7 +4,6 @@ import { TextGeometry } from "./vendor/TextGeometry.js";
 import { traceSurface } from "./trace-surface.mjs";
 import { renderSettings } from "./render-settings.mjs";
 
-const FONT = "./helvetiker_regular.typeface.json";
 const TAN = Math.tan(Math.PI / 12);
 const HALF_W = 4.15;
 const GAP = 0.38;
@@ -14,10 +13,15 @@ const FIRST_BASELINE = 1.1;
 const MAX_PIXEL_RATIO = 2;
 const MAX_PIXELS = 2000000;
 
-let fontPromise = null;
-const loadFont = () => fontPromise || (fontPromise =
-  new FontLoader().loadAsync(new URL(FONT, import.meta.url).href)
-    .catch((error) => { fontPromise = null; throw error; }));
+const fonts = new Map();
+const loadFont = (url) => {
+  if (!url) return Promise.reject(new Error("Font URL required"));
+  if (!fonts.has(url)) {
+    fonts.set(url, new FontLoader().loadAsync(url)
+      .catch((error) => { fonts.delete(url); throw error; }));
+  }
+  return fonts.get(url);
+};
 
 const em = (font, str) => [...str].reduce((width, ch) => {
   const glyph = font.data.glyphs[ch] || font.data.glyphs["?"];
@@ -363,7 +367,7 @@ export function createText3d(canvas, options) {
 
   const unsubscribe = renderSettings.subscribe(() => { revision++; attemptDraw(); });
 
-  loadFont().then((loaded) => {
+  loadFont(options.fontUrl).then((loaded) => {
     if (disposed) return;
     font = loaded;
     try {

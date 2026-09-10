@@ -594,9 +594,8 @@ export function createLaunchControls(element, options) {
       return render;
     };
     try {
-      const font = await new FontLoader().loadAsync(
-        new URL("./helvetiker_bold.typeface.json", import.meta.url).href,
-      );
+      if (!options.fontUrl) throw new Error("Font URL required");
+      const font = await new FontLoader().loadAsync(options.fontUrl);
       if (disposed) return;
       const GAP = 0.5;
       const ICONS = { mac: appleIcon, ios: appleIcon, windows: windowsIcon };

@@ -265,8 +265,9 @@ export function createCapacity(canvas, options) {
   };
   const load = async () => {
     try {
+      if (!options.fontUrl) throw new Error('Font URL required');
       const [fontJson, earth, rings] = await Promise.all([
-        fetch(new URL('../hero/helvetiker_regular.typeface.json', import.meta.url), { signal: request.signal }).then(response => {
+        fetch(options.fontUrl, { signal: request.signal }).then(response => {
           if (!response.ok) throw new Error('Font unavailable');
           return response.json();
         }),

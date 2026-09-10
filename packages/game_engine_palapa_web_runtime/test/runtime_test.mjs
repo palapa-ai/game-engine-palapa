@@ -8,6 +8,10 @@ import { layoutDocument } from '../runtime/hero/text3d.mjs';
 import { revealPage } from '../runtime/hero/reveal.mjs';
 
 const root = new URL('../runtime/', import.meta.url);
+const fontFixture = {
+  resolution: 1000,
+  glyphs: { '?': { ha: 700 }, ' ': { ha: 350 } },
+};
 test('scanline reveal releases the page after animation, cancellation, or reduced motion', async () => {
   for (const mode of ['animated', 'cancelled', 'reduced']) {
     let removed = false, animated = false;
@@ -61,7 +65,7 @@ test('runtime assets resolve locally without website or native-engine dependenci
   await visit(root);
 });
 test('text layout keeps long words and links within narrow surfaces', async () => {
-  const font = new FontLoader().parse(JSON.parse(await readFile(new URL('hero/helvetiker_regular.typeface.json', root))));
+  const font = new FontLoader().parse(fontFixture);
   const layout = layoutDocument(font, [{spans:[{text:'Distributed supercomputer Privacy',color:0xffffff,href:'/privacy-policy'}],size:18}], 220);
   assert.ok(layout.entries.length > 1);
   for (const entry of layout.entries) {
@@ -138,7 +142,7 @@ test('geometry lighting traces rays and returns finite surface colors', async ()
 });
 
 test('live text slots retain a single reserved space across wrapping and split alignment', async () => {
-  const font = new FontLoader().parse(JSON.parse(await readFile(new URL('hero/helvetiker_regular.typeface.json', root))));
+  const font = new FontLoader().parse(fontFixture);
   for (const width of [180, 880]) {
     const layout = layoutDocument(font, [{spans:[{text:'Copyright',color:0x9e9e9e},{text:'Terms · Privacy · ',color:0x9e9e9e},{text:'000 FPS',slot:'fps',color:0x9e9e9e},{text:' · debug',color:0x9e9e9e}],size:12,alignment:'split',splitGap:0}], width);
     const slots = layout.entries.filter(entry => entry.slot);
