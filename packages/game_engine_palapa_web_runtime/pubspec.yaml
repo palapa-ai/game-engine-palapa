@@ -1,0 +1,17 @@
+name: game_engine_palapa_web_runtime
+description: Modular browser scene rendering, ray tracing, and interactive surfaces for the Palapa game engine.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.12.0
+dependencies:
+  flutter:
+    sdk: flutter
+  web: ^1.1.1
+flutter:
+  assets:
+    - runtime/background/
+    - runtime/capacity/
+    - runtime/hero/
+    - runtime/hero/vendor/
+    - runtime/hero/vendor/weights/

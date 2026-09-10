@@ -1,0 +1,150 @@
+// The archive's RT_attach, with the CDN import and the CSS-variable knobs
+// replaced by a relative import and a settings object. The tracer's own
+// configuration is unchanged, so the image it converges to is the archive's.
+import * as THREE from "./vendor/three.module.min.js";
+
+let modP = null;
+const mod = () => modP || (modP = import("./vendor/three-gpu-pathtracer.module.js"));
+
+// Building the BVH was the last synchronous stall in attaching the tracer, so it
+// runs in a worker and the page only deserialises the result.
+const bvhWorker = async () => {
+  const { MeshBVH } = await import("./vendor/three-mesh-bvh.module.js");
+  const worker = new Worker(new URL("./bvh-worker.mjs", import.meta.url), { type: "module" });
+  let running = false;
+  return {
+    worker,
+    generate(geometry, options = {}) {
+      if (running) return Promise.reject(new Error("bvh worker busy"));
+      running = true;
+      return new Promise((resolve, reject) => {
+        const done = () => { running = false; worker.onmessage = null; worker.onerror = null; };
+        worker.onerror = (e) => { done(); reject(new Error(e.message || "bvh worker failed")); };
+        worker.onmessage = ({ data }) => {
+          if (data.error) { done(); reject(new Error(data.error)); return; }
+          if (!data.serialized) return;
+          const bvh = MeshBVH.deserialize(data.serialized, geometry, { setIndex: false });
+          geometry.attributes.position.array = data.position;
+          if (data.serialized.index) {
+            if (geometry.index) geometry.index.array = data.serialized.index;
+            else geometry.setIndex(new THREE.BufferAttribute(data.serialized.index, 1, false));
+          }
+          geometry.boundingBox = bvh.getBoundingBox(new THREE.Box3());
+          done();
+          resolve(bvh);
+        };
+        const index = geometry.index ? geometry.index.array : null;
+        const position = geometry.attributes.position.array;
+        const buffers = [position.buffer];
+        if (index) buffers.push(index.buffer);
+        worker.postMessage(
+          { index, position, options: { ...options, onProgress: null, includedProgressCallback: false, groups: [...geometry.groups] } },
+          buffers.filter((b) => typeof SharedArrayBuffer === "undefined" || !(b instanceof SharedArrayBuffer)),
+        );
+      });
+    },
+  };
+};
+
+export async function attachTracer(renderer, scene, camera, cfg) {
+  const { WebGLPathTracer, GradientEquirectTexture, PhysicalCamera } = await mod();
+
+  const env = new GradientEquirectTexture();
+  env.topColor.set(0xbfbfbf);
+  env.bottomColor.set(0x0d0d0d);
+  env.update();
+  scene.environment = env;
+  scene.environmentIntensity = 1;
+  // Missed camera rays expose the page wall without removing environment lighting.
+  scene.background = null;
+
+  // Depth of field only exists on a PhysicalCamera (the tracer instanceof-checks
+  // it), so the raster PerspectiveCamera is upgraded in place.
+  const cam = new PhysicalCamera(camera.fov, camera.aspect, camera.near, camera.far);
+  cam.position.copy(camera.position);
+  cam.quaternion.copy(camera.quaternion);
+  cam.bokehSize = 0;
+  cam.updateProjectionMatrix();
+  camera = cam;
+
+  const pt = new WebGLPathTracer(renderer);
+  // Cap the render target at the device's max texture size — oversized float
+  // targets are silently rejected on iOS (or OOM the tab).
+  const gl = renderer.getContext();
+  const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  const db = new THREE.Vector2();
+  const clampRes = (r) => {
+    renderer.getDrawingBufferSize(db);
+    return Math.min(r, maxTex / Math.max(db.x, db.y));
+  };
+
+  pt.bounces = cfg.bounces;
+  // rtRes counts 516-wide layout units, so the trace stays put when fxRes moves.
+  pt.renderScale = clampRes(cfg.rtRes / cfg.fxRes);
+  // Instant chunky preview: one low-res pass composites while full-res accumulates.
+  pt.dynamicLowRes = true;
+  pt.lowResScale = 0.25;
+  pt.fadeDuration = 900;
+  // One renderSample() traces one tile, so more tiles = less work per frame.
+  pt.tiles.set(cfg.tiles, cfg.tiles);
+  pt.synchronizeRenderSize = true;
+  pt.minSamples = 1;
+  pt.filterGlossyFactor = 0.5;
+
+  let bvh = null;
+  let disposed = false;
+  const cleanup = () => {
+    if (disposed) return;
+    disposed = true;
+    try { pt.dispose(); } catch (_) { /* release remaining owned resources */ }
+    try { bvh?.worker.terminate(); } catch (_) { /* worker may already be gone */ }
+    if (scene.environment === env) scene.environment = null;
+    env.dispose();
+  };
+  try { bvh = await bvhWorker(); pt.setBVHWorker(bvh); } catch (e) { /* falls back to the main thread */ }
+  const build = () => (bvh ? pt.setSceneAsync(scene, camera) : Promise.resolve(pt.setScene(scene, camera)));
+  try { await build(); }
+  catch (error) {
+    cleanup();
+    throw error;
+  }
+
+  return {
+    dead: false,
+    camera,
+    sample(count) {
+      if (this.dead) return false;
+      try {
+        pt.renderScale = clampRes(cfg.rtRes / cfg.fxRes);
+        for (let i = 0; i < (count || 1); i++) pt.renderSample();
+        const tg = pt.target;
+        if (tg && tg.texture && tg.texture.magFilter !== THREE.NearestFilter) {
+          tg.texture.magFilter = THREE.NearestFilter;
+          tg.texture.needsUpdate = true;
+        }
+        return true;
+      } catch (e) {
+        this.dead = true;
+        scene.environment = null;
+        return false;
+      }
+    },
+    rebuild() { if (!this.dead) build().catch(() => { this.dead = true; }); },
+    updateCamera() { if (this.dead) return; try { pt.updateCamera(); } catch (e) { this.dead = true; } },
+    updateMaterials() { if (this.dead) return; try { pt.updateMaterials(); } catch (e) { this.dead = true; } },
+    updateLights() {
+      if (this.dead) return;
+      try {
+        if (typeof pt.updateLights === "function") pt.updateLights();
+        else build().catch(() => { this.dead = true; });
+      } catch (e) { this.dead = true; }
+    },
+    dispose() {
+      this.dead = true;
+      cleanup();
+    },
+    get target() { return pt.target; },
+    get compiling() { return !!pt.isCompiling; },
+    get samples() { return pt.samples; },
+  };
+}
