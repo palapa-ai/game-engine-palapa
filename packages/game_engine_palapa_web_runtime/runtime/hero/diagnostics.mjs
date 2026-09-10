@@ -38,7 +38,10 @@ export function createDiagnostics(element, source) {
     const current = values.indexOf(renderSettings.value[key]);
     renderSettings.update({ [key]: values[(current + (event.shiftKey ? -1 : 1) + values.length) % values.length] });
   }));
-  root.getElementById('reset').addEventListener('click', () => renderSettings.update({ samples: null, bounces: 4, resolution: 1 }));
+  root.getElementById('reset').addEventListener('click', () => {
+    renderSettings.update({ samples: null, bounces: 4, resolution: 1 });
+    source.resetTracingQuality?.();
+  });
   const unsubscribe = renderSettings.subscribe(sync);
   sync();
   const fps = createFrameCounter(root.getElementById('fps'));

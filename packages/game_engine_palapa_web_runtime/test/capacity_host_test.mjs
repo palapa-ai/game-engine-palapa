@@ -20,7 +20,11 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
     getBoundingClientRect() { return bounds; }
     getContext(kind) {
       assert.equal(kind, '2d', 'the shared component must not create a private graphics context');
-      return { fillText() {}, getImageData: () => ({ data: new Uint8Array(256 * 256 * 4) }) };
+      return {
+        fillText() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, stroke() {},
+        createLinearGradient: () => ({ addColorStop() {} }),
+        getImageData: () => ({ data: new Uint8Array(256 * 256 * 4) }),
+      };
     }
     hasPointerCapture() { return false; }
   }
@@ -103,6 +107,14 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
   assert.ok(table.rotation.equals(tableRotation));
   assert.notEqual(globe.rotation.y, globeRotation);
   assert.ok(dynamicChanges > 0);
+
+  const meridian = root.getObjectByName('antique-globe-meridian');
+  for (const style of ['black and white', 'antique', 'photorealistic']) {
+    anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'g' }));
+    assert.ok(anchor['aria-label'].includes(`Globe: ${style}.`));
+    assert.equal(meridian.visible, style === 'antique');
+    assert.equal(geometryChanges, initialChanges, 'globe style changes must preserve the static page trace');
+  }
 
   const next = () => anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Enter' }));
   next();

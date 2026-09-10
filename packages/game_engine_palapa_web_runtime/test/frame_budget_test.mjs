@@ -14,11 +14,11 @@ test('ray work uses remaining total frame time after presentation and GPU reserv
 });
 
 test('late animation frames back off ray work and reduce tile area', () => {
-  const budget = new FrameBudget();
+  const budget = new FrameBudget({ tiles: 16, maxTiles: 64 });
   budget.begin(0);
   budget.submitted();
   budget.begin(33);
-  assert.equal(budget.tiles, 32);
+  assert.equal(budget.tiles, 16);
   assert.equal(budget.allows(34), false);
   budget.begin(50);
   assert.equal(budget.allows(51), false);
@@ -26,14 +26,14 @@ test('late animation frames back off ray work and reduce tile area', () => {
   assert.equal(budget.allows(68), true);
   budget.submitted();
   budget.finish(90);
-  assert.equal(budget.tiles, 64);
+  assert.equal(budget.tiles, 32);
   assert.equal(budget.allows(91), false);
   budget.shrink();
   assert.equal(budget.tiles, 64);
 });
 
 test('GPU timings adapt tiles without waiting for CPU frame overruns', () => {
-  const budget = new FrameBudget();
+  const budget = new FrameBudget({ tiles: 16, maxTiles: 64 });
   budget.ray(null, 12, 16);
   assert.equal(budget.tiles, 32);
   assert.equal(budget.rayGpuMs, 3);
@@ -127,4 +127,90 @@ test('GPU measurement backlog is bounded and prevents further ray submissions', 
   assert.equal(gl.queries.length, 4);
   timer.dispose();
   assert.equal(gl.deleted.length, 4);
+});
+
+
+test('full-target blending pressure reduces trace resolution instead of growing tiles forever', () => {
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  budget.paint(1);
+  budget.ray(0.2, 15.11);
+  assert.equal(budget.tiles, 8);
+  assert.equal(budget.scale, 0.5);
+  budget.begin(0);
+  assert.equal(budget.allows(1), true);
+  budget.submitted();
+  budget.ray(0.2, 4, 8, 0.5);
+  budget.begin(17);
+  assert.equal(budget.allows(18), true);
+});
+
+test('a stale expensive estimate cannot permanently starve tracing', () => {
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  budget.paint(1);
+  budget.rayGpuMs = 40;
+  let submissions = 0;
+  for (let frame = 0; frame < 600; frame++) {
+    const now = frame * 1000 / 60;
+    budget.begin(now);
+    if (!budget.allows(now + 1)) continue;
+    submissions++;
+    budget.submitted();
+    // Measured full-target work after the reduced trace resolution is applied.
+    budget.ray(0.1, 15.11 * budget.scale ** 2, budget.tiles, budget.scale);
+  }
+  assert.ok(submissions > 400);
+  assert.ok(budget.tiles <= 8);
+  assert.ok(budget.scale < 1);
+});
+
+test('minimum-sized work recovers with rate-limited probes, never bypassing paint or pending GPU work', () => {
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  budget.scale = budget.minScale;
+  budget.rayGpuMs = 50;
+  const probes = [];
+  for (let frame = 0; frame < 180; frame++) {
+    const now = frame * 1000 / 60;
+    budget.begin(now);
+    if (budget.allows(now + 1)) { probes.push(now); budget.submitted(); }
+  }
+  assert.equal(probes.length, 3);
+  assert.ok(probes.slice(1).every((value, index) => value - probes[index] >= 1000));
+  budget.begin(4000);
+  assert.equal(budget.allows(4001, true), false);
+  budget.paint(13);
+  budget.begin(5017);
+  assert.equal(budget.allows(5018), false);
+});
+
+test('GPU timing changes keep CPU submission overhead and recover useful tile throughput', () => {
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  budget.rayCpuMs = 1;
+  budget.shrink();
+  assert.equal(budget.rayCpuMs, 1);
+  for (let i = 0; i < 64; i++) budget.ray(0.1, 0.1, 8, budget.scale);
+  assert.equal(budget.tiles, 4);
+  assert.equal(budget.scale, 0.5);
+});
+
+
+test('sustained GPU headroom restores full trace resolution after contention', () => {
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  budget.scale = budget.minScale;
+  for (let i = 0; i < 60; i++) budget.ray(0.1, 0.1, budget.tiles, budget.scale);
+  assert.equal(budget.scale, budget.minScale, 'a brief quiet interval must not restart quality');
+  for (let i = 0; i < 500; i++) budget.ray(0.1, 0.1, budget.tiles, budget.scale);
+  assert.equal(budget.tiles, 2);
+  assert.equal(budget.scale, 1);
+});
+
+test('explicit quality reset restores requested resolution while retaining measured paint cost', () => {
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  budget.scale = budget.minScale;
+  budget.tiles = 2;
+  budget.paint(12);
+  budget.resetQuality();
+  assert.equal(budget.scale, 1);
+  assert.equal(budget.tiles, 8);
+  budget.begin(0);
+  assert.equal(budget.allows(1), false);
 });

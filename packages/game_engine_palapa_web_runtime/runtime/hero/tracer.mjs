@@ -91,6 +91,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   pt.minSamples = 1;
   pt.filterGlossyFactor = 0.5;
 
+  let adaptiveScale = 1;
   let bvh = null;
   let disposed = false;
   const cleanup = () => {
@@ -120,7 +121,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       const renderToCanvas = pt.renderToCanvas;
       pt.renderToCanvas = present;
       try {
-        pt.renderScale = clampRes(cfg.rtRes / cfg.fxRes);
+        pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
         for (let i = 0; i < (count || 1); i++) pt.renderSample();
         const tg = pt.target;
         if (tg && tg.texture && tg.texture.magFilter !== THREE.NearestFilter) {
@@ -133,6 +134,13 @@ export async function attachTracer(renderer, scene, camera, cfg) {
         scene.environment = null;
         return false;
       } finally { pt.renderToCanvas = renderToCanvas; }
+    },
+    setScale(scale) {
+      const next = Math.min(1, Math.max(1 / 64, scale));
+      if (adaptiveScale === next) return;
+      adaptiveScale = next;
+      pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
+      pt.reset();
     },
     setTiles(divisions) {
       if (pt.tiles.x === divisions && pt.tiles.y === divisions) return;
@@ -165,6 +173,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       this.dead = true;
       cleanup();
     },
+    get scale() { return adaptiveScale; },
     get target() { return pt.target; },
     get compiling() { return !!pt.isCompiling; },
     get samples() { return pt.samples; },

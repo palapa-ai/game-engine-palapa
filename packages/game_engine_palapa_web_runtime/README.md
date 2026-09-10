@@ -13,8 +13,12 @@ structure and dynamic overlays. `createTextSurface`, launch controls, capacity
 tables, and authored scene assets can share that host. Stationary table content
 joins the trace; moving content does not reset accumulation. Animation receives
 priority under a 16ms frame budget, using asynchronous GPU timings when available
-and frame cadence otherwise. Individual GPU draws and initial compilation cannot
-be preempted, so this is a performance target rather than a frame-rate guarantee.
+and frame cadence otherwise. Under pressure, the trace target reduces resolution
+independently of the page canvas, because transparent accumulation blends a full
+target even for a small tile. Stale cost estimates recover with reduced work and
+at most one minimized probe per second. Individual GPU draws, scene preparation,
+and driver compilation cannot be preempted; competing GPU processes can still
+cause slow frames. This is a performance target rather than a frame-rate guarantee.
 
 Author geometry and materials in OpenUSD in the consuming repository. With the
 OpenUSD Python SDK installed, `python tool/compile_usd.py scene.usda scene.scene.json`

@@ -7,17 +7,40 @@ import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
 const MAX_PIXELS = 3000000;
 const AUTO_SAMPLES = 64;
 
+// Broad reflected light for moving metal, matching the static tracer's sky.
+// Build and prefilter once; animated frames only sample the resulting texture.
+function softEnvironment(renderer) {
+  const width = 64, height = 32, data = new Float32Array(width * height * 4);
+  const top = new THREE.Color(0xd8d8d8), bottom = new THREE.Color(0xb8b8b8), color = new THREE.Color();
+  for (let y = 0; y < height; y++) {
+    const weight = ((1 - Math.cos(Math.PI * y / (height - 1))) / 2) ** 2;
+    color.copy(bottom).lerp(top, weight);
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4;
+      data.set([color.r, color.g, color.b, 1], offset);
+    }
+  }
+  const source = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
+  source.mapping = THREE.EquirectangularReflectionMapping;
+  source.needsUpdate = true;
+  const generator = new THREE.PMREMGenerator(renderer);
+  try { return generator.fromEquirectangular(source); }
+  finally { source.dispose(); generator.dispose(); }
+}
+
 export function createPageScene(canvas, options = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0x000000, 0);
   renderer.localClippingEnabled = true;
   const scene = new THREE.Scene();
+  const environment = softEnvironment(renderer);
+  scene.environment = environment.texture;
   const camera = new THREE.OrthographicCamera(-1, 1, 0, -1, 0.1, 10000);
   camera.position.z = 2000;
   scene.add(new THREE.AmbientLight(0xffffff, 0.8));
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b8b8, 0.7));
 
-  const budget = new FrameBudget({ tiles: 8 });
+  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
   const timer = gpuTimer(renderer.getContext());
   const staticTarget = new THREE.WebGLRenderTarget(1, 1, {
     minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
@@ -80,6 +103,11 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceSkippedFrames = String(budget.skipped);
     canvas.dataset.paintGpuMs = budget.paintGpuMs.toFixed(2);
     canvas.dataset.traceTileGpuMs = budget.rayGpuMs.toFixed(2);
+    canvas.dataset.traceResolutionScale = String(budget.scale);
+    canvas.dataset.traceProbeCount = String(budget.probes);
+    canvas.dataset.traceGpuPending = String(timer.busy);
+    canvas.dataset.traceWidth = String(tracer?.target?.width || 0);
+    canvas.dataset.traceHeight = String(tracer?.target?.height || 0);
   };
   const wake = () => {
     if (!frame && !disposed && contextAvailable && !document.hidden && width && height) frame = requestAnimationFrame(draw);
@@ -177,7 +205,7 @@ export function createPageScene(canvas, options = {}) {
     budget.begin(time);
     for (const result of timer.poll()) {
       if (result.kind === 'paint') budget.paint(result.milliseconds);
-      else budget.ray(null, result.milliseconds, result.tiles);
+      else budget.ray(null, result.milliseconds, result.tiles, result.scale);
     }
     const delta = previous === null ? 0 : Math.min(0.05, (time - previous) / 1000);
     previous = time;
@@ -191,14 +219,17 @@ export function createPageScene(canvas, options = {}) {
       if (tracer && !building && !geometryDirty && phase !== 'complete' && !tracer.compiling) {
         if (budget.allows(performance.now(), timer.busy)) {
           tracer.setTiles(budget.tiles);
+          tracer.setScale(budget.scale);
           const started = performance.now(), divisions = budget.tiles;
-          timer.begin('ray', { tiles: divisions });
+          timer.begin('ray', { tiles: divisions, scale: budget.scale });
           let sampled;
           const previousSamples = tracer.samples;
           try { sampled = tracer.sample(1, { present: false }); }
           finally { timer.end(); }
-          budget.submitted();
-          if (tracer.samples > previousSamples) budget.ray(performance.now() - started);
+          if (tracer.samples > previousSamples) {
+            budget.submitted();
+            budget.ray(performance.now() - started);
+          }
           if (!sampled) throw Error('Page ray tracing unavailable');
           dirty = true;
           if (tracer.samples >= (renderSettings.value.samples ?? AUTO_SAMPLES)) {
@@ -241,6 +272,7 @@ export function createPageScene(canvas, options = {}) {
     invalidate();
   };
   const qualityChanged = () => {
+    budget.resetQuality();
     const previousRatio = ratio;
     ratio = 0;
     resize(width, height, previousRatio);
@@ -279,6 +311,14 @@ export function createPageScene(canvas, options = {}) {
       invalidate(dynamic && !building ? { dynamic: true } : {});
     },
     invalidate, resize,
+    resetTracingQuality() {
+      budget.resetQuality();
+      tracer?.setTiles(budget.tiles);
+      tracer?.setScale(1);
+      if (tracer) phase = 'tracing';
+      dirty = true;
+      wake();
+    },
     tick(callback) {
       const update = ({ time, delta }) => callback(time, delta);
       callbacks.add(update);
@@ -305,6 +345,7 @@ export function createPageScene(canvas, options = {}) {
       });
       resources.forEach(resource => resource.dispose());
       timer.dispose();
+      environment.dispose();
       staticTarget.dispose();
       staticQuad.dispose();
       staticMaterial.dispose();
