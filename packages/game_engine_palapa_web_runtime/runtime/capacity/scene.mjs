@@ -19,6 +19,9 @@ const MAX_SPIN_SPEED = 12;
 const DRAG_THRESHOLD = 6;
 
 export function createCapacity(canvas, options) {
+  const host = options.host;
+  let stopTick = null;
+  let localHeight = 1;
   let renderer, scene, camera, globe, globeBody, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, table, ticker;
   let dead = false, ready = false, visible = false, frame = 0, previous = null;
   let elapsed = 0, period = 0;
@@ -42,8 +45,20 @@ export function createCapacity(canvas, options) {
   const models = [...options.models];
   const total = countries.reduce((sum, row) => sum + row.megawattHours, 0);
 
+  const place = () => {
+    if (!host || !scene || width <= 0 || height <= 0) return;
+    const bounds = canvas.getBoundingClientRect();
+    const viewport = host.renderer.domElement.getBoundingClientRect();
+    scene.position.set(bounds.left + bounds.width / 2 - viewport.left - viewport.width / 2,
+      -(bounds.top + scrollY + bounds.height / 2), options.depth ?? 20);
+    scene.scale.setScalar(height / localHeight);
+    tickerClip[0].constant = -(scene.position.x - width / 2);
+    tickerClip[1].constant = scene.position.x + width / 2;
+  };
   const render = () => {
-    if (!dead && renderer && visible && !document.hidden) renderer.render(scene, camera);
+    if (dead || !renderer || !visible || document.hidden) return;
+    if (host) { place(); host.invalidate({ dynamic: true }); }
+    else renderer.render(scene, camera);
   };
   const announce = () => {
     const content = currentPage ? `${comparisons[currentPage - 1].title}, ${comparisons[currentPage - 1].unit}: ${comparisons[currentPage - 1].rows.map(row => row.join(', ')).join('; ')}` : countries.map((row, index) => `${index + 1}. ${row.country}, ${row.megawattHours} MWh`).join('; ') + `; Total ${total.toLocaleString('en-US')} MWh.`;
@@ -97,25 +112,31 @@ export function createCapacity(canvas, options) {
     }
     ticker.position.x = -worldWidth / 2 - (elapsed * 0.5) % (period * tickerScale);
     render();
-    frame = requestAnimationFrame(tick);
+    if (!host) frame = requestAnimationFrame(tick);
   };
   const refresh = () => {
-    cancelAnimationFrame(frame); frame = 0; previous = null;
+    if (host) { stopTick?.(); stopTick = null; }
+    else cancelAnimationFrame(frame);
+    frame = 0; previous = null;
     if (!visible || document.hidden || reduced.matches) {
       spinSpeed = SPIN_SPEED;
       releaseTouch();
     }
     if (dead || !ready || !visible || document.hidden) return;
     render();
-    if (!reduced.matches) frame = requestAnimationFrame(tick);
+    if (!reduced.matches) {
+      if (host) stopTick = host.tick(tick);
+      else frame = requestAnimationFrame(tick);
+    }
   };
   let touch = null, suppressClick = false;
   const hitsGlobe = event => {
     if (!ready || dead || !globeBody) return false;
     const bounds = canvas.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return false;
-    pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1,
-      1 - (event.clientY - bounds.top) / bounds.height * 2);
+    const view = host ? renderer.domElement.getBoundingClientRect() : bounds;
+    pointer.set((event.clientX - view.left) / view.width * 2 - 1,
+      1 - (event.clientY - view.top) / view.height * 2);
     camera.updateMatrixWorld();
     globe.updateWorldMatrix(true, true);
     raycaster.setFromCamera(pointer, camera);
@@ -143,7 +164,7 @@ export function createCapacity(canvas, options) {
     const onGlobe = hitsGlobe(event);
     if (!onGlobe && event.pointerType !== 'touch') return;
     const bounds = canvas.getBoundingClientRect();
-    const worldHeight = 2 * Math.tan(Math.PI / 12) * camera.position.z;
+    const worldHeight = host ? localHeight : 2 * Math.tan(Math.PI / 12) * camera.position.z;
     const diameter = 2 * 0.99 * globe.scale.x * bounds.height / worldHeight;
     touch = { id: event.pointerId, x: event.clientX, y: event.clientY,
       lastX: event.clientX, lastY: event.clientY, time: event.timeStamp,
@@ -208,24 +229,30 @@ export function createCapacity(canvas, options) {
 
   const layout = () => {
     if (!renderer || width <= 0 || height <= 0) return;
-    renderer.setPixelRatio(Math.min(ratio, 2));
-    renderer.setSize(width, height, false);
+    if (!host) {
+      renderer.setPixelRatio(Math.min(ratio, 2));
+      renderer.setSize(width, height, false);
+    }
     renderer.getDrawingBufferSize(lineResolution);
     for (const material of lineMaterials) {
       material.resolution.copy(lineResolution);
       material.linewidth = 1.25 * lineResolution.x / 516;
     }
-    camera.position.z = narrow ? 15.6 : 6.8;
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-    const worldHeight = 2 * Math.tan(Math.PI / 12) * camera.position.z;
-    worldWidth = worldHeight * camera.aspect;
+    const cameraDistance = narrow ? 15.6 : 6.8;
+    if (!host) {
+      camera.position.z = cameraDistance;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    const worldHeight = 2 * Math.tan(Math.PI / 12) * cameraDistance;
+    localHeight = worldHeight;
+    worldWidth = worldHeight * width / height;
     const perPixel = worldHeight / height;
-    tickerClip.forEach(plane => { plane.constant = Math.min(width, tickerWidth || width) * perPixel / 2; });
+    if (!host) tickerClip.forEach(plane => { plane.constant = worldWidth / 2; });
     tableScale = narrow ? Math.min(worldWidth * 0.96 / (RIGHT - LEFT), 21 * worldWidth / width / FONT_SIZE) : 1;
     tickerScale = narrow ? Math.min(2, 21 * worldWidth / width / 0.2) : 1;
     const tableRadius = (RIGHT - LEFT) * tableScale * Math.cos(0.25) / 2;
-    const globeScale = narrow ? tableRadius / Math.hypot(1, tableRadius / camera.position.z) / 1.018 : 1.3;
+    const globeScale = narrow ? tableRadius / (host ? 1 : Math.hypot(1, tableRadius / cameraDistance)) / 1.018 : 1.3;
     const globeRadius = globeScale * 0.99;
     globe.position.set(narrow ? 0 : -2.5, narrow ? worldHeight / 2 - 18 * perPixel - globeRadius : 0.25, 0);
     globe.scale.setScalar(globeScale);
@@ -279,13 +306,16 @@ export function createCapacity(canvas, options) {
       ]);
       if (dead) return;
       const font = new FontLoader().parse(fontJson);
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer = host?.renderer || new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
       renderer.localClippingEnabled = true;
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-      scene.add(new THREE.AmbientLight(0x9bb8da, 0.35));
-      const light = new THREE.DirectionalLight(0xfff6e5, 2.3);
-      light.position.set(-3, 3, 5); scene.add(light);
+      scene = host ? new THREE.Group() : new THREE.Scene();
+      scene.name = 'capacity';
+      camera = host?.camera || new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+      if (!host) {
+        scene.add(new THREE.AmbientLight(0x9bb8da, 0.35));
+        const light = new THREE.DirectionalLight(0xfff6e5, 2.3);
+        light.position.set(-3, 3, 5); scene.add(light);
+      }
       globe = new THREE.Group(); globe.rotation.x = 0.42; scene.add(globe);
       earth.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
       photoMaterial = new THREE.MeshPhongMaterial({ map: earth, specular: 0x141a22, shininess: 14 });
@@ -440,8 +470,9 @@ export function createCapacity(canvas, options) {
       ticker.traverse(object => { if (object.material) object.material.clippingPlanes = tickerClip; });
       tickerBottom = new THREE.Box3().setFromObject(ticker).min.y;
       ready = true;
+      if (host) host.add(scene, { dynamic: true });
       announce(); layout(); refresh();
-      for (const group of [...pages, ticker, globeBody]) {
+      for (const group of host ? [] : [...pages, ticker, globeBody]) {
         lighting.push(lightMovingGroup(canvas, group, camera, height || 767, () => {
           if (group === globeBody) {
             globeBody.userData.tracedPhotoMaterial ||= globeBody.material;
@@ -493,7 +524,10 @@ export function createCapacity(canvas, options) {
   visibility();
   function dispose() {
     if (dead) return;
-    dead = true; request.abort(); cancelAnimationFrame(frame); observer.disconnect();
+    dead = true; request.abort();
+    if (host) { stopTick?.(); if (scene) host.remove(scene); }
+    else cancelAnimationFrame(frame);
+    observer.disconnect();
     clearTimeout(backgroundLoad);
     releaseTouch();
     lighting.forEach(job => job.dispose());
@@ -509,12 +543,13 @@ export function createCapacity(canvas, options) {
       materials.forEach(material => materialsToDispose.add(material));
     });
     materialsToDispose.forEach(material => material.dispose());
-    textures.forEach(texture => texture.dispose()); renderer?.dispose(); renderer?.forceContextLoss();
+    textures.forEach(texture => texture.dispose());
+    if (!host) { renderer?.dispose(); renderer?.forceContextLoss(); }
   }
   return {
     resize(cssWidth, cssHeight, pixelRatio, isNarrow, tickerCssWidth = cssWidth) {
       if (dead || cssWidth <= 0 || cssHeight <= 0) return;
-      if (width === cssWidth && height === cssHeight && ratio === pixelRatio && narrow === isNarrow && tickerWidth === tickerCssWidth) return;
+      if (width === cssWidth && height === cssHeight && ratio === pixelRatio && narrow === isNarrow && tickerWidth === tickerCssWidth) { place(); return; }
       width = cssWidth; height = cssHeight; ratio = pixelRatio; narrow = isNarrow; tickerWidth = tickerCssWidth; layout();
     },
     dispose,

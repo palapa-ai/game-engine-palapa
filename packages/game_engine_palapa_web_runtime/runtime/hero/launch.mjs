@@ -180,6 +180,8 @@ const appleShapes = function (T) {
   });
 };
 export function createLaunchControls(element, options) {
+  const host = options.host;
+  const cancelFrame = host ? unsubscribe => unsubscribe?.() : cancelAnimationFrame;
   const root = element.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = `
@@ -279,7 +281,7 @@ export function createLaunchControls(element, options) {
   controls.addEventListener("focusin", focus);
   controls.addEventListener("focusout", blur);
   const stopRendering = () => {
-    scheduled.forEach(cancelAnimationFrame);
+    scheduled.forEach(cancelFrame);
     scheduled.clear();
     cleanups.splice(0).forEach((cleanup) => cleanup());
   };
@@ -299,10 +301,13 @@ export function createLaunchControls(element, options) {
   };
   const frame = (callback) => {
     if (disposed || failed) return;
-    const id = requestAnimationFrame((time) => {
+    let id;
+    const run = (time) => {
       scheduled.delete(id);
+      if (host) id();
       if (!disposed && !failed) callback(time);
-    });
+    };
+    id = host ? host.tick(run) : requestAnimationFrame(run);
     scheduled.add(id);
     return id;
   };
@@ -316,9 +321,13 @@ export function createLaunchControls(element, options) {
       emissive: 0x66f5f5,
       emissiveIntensity: 0.7,
     });
-    const faceMat = new THREE.MeshBasicMaterial({ color: 0xff66cc });
+    const faceMat = host
+      ? new THREE.MeshStandardMaterial({ color: 0xff66cc, roughness: 0.65, metalness: 0 })
+      : new THREE.MeshBasicMaterial({ color: 0xff66cc });
     faceMat.userData.launchFace = true;
-    const sideMat = new THREE.MeshBasicMaterial({ color: 0x7a2e5e });
+    const sideMat = host
+      ? new THREE.MeshStandardMaterial({ color: 0x7a2e5e, roughness: 0.65, metalness: 0 })
+      : new THREE.MeshBasicMaterial({ color: 0x7a2e5e });
     cleanups.push(() => {
       frameMat.dispose();
       faceMat.dispose();
@@ -434,13 +443,14 @@ export function createLaunchControls(element, options) {
       return fg;
     };
     const mkStage = (c, phase, build) => {
-      const renderer = new THREE.WebGLRenderer({
+      const renderer = host?.renderer || new THREE.WebGLRenderer({
         canvas: c,
         antialias: AA,
         alpha: true,
         preserveDrawingBuffer: false,
       });
-      const scene = new THREE.Scene();
+      const scene = host ? new THREE.Group() : new THREE.Scene();
+      scene.name = 'launch-control';
       cleanups.push(() => {
         scene.traverse((o) => {
           if (o.isMesh) {
@@ -449,16 +459,20 @@ export function createLaunchControls(element, options) {
             mats.forEach((m) => m.dispose());
           }
         });
-        renderer.dispose();
+        if (host) host.remove(scene);
+        else renderer.dispose();
       });
-      const cam = new THREE.PerspectiveCamera(30, 4, 0.1, 60);
-      scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-      const dl = new THREE.DirectionalLight(0xffffff, 1.1);
-      dl.position.set(2, 3, 4);
-      scene.add(dl);
+      const cam = host?.camera || new THREE.PerspectiveCamera(30, 4, 0.1, 60);
+      if (!host) {
+        scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+        const dl = new THREE.DirectionalLight(0xffffff, 1.1);
+        dl.position.set(2, 3, 4);
+        scene.add(dl);
+      }
       const rig = new THREE.Group();
       scene.add(rig);
       const fitted = build(rig);
+      if (host) host.add(scene, { dynamic: true });
       let hvT = 0,
         hv = 0,
         faceClone = null;
@@ -493,8 +507,18 @@ export function createLaunchControls(element, options) {
       visibility.observe(c);
       cleanups.push(() => visibility.disconnect());
       const BW = 470;
+      const place = () => {
+        if (!host) return;
+        const bounds = c.getBoundingClientRect();
+        const view = renderer.domElement.getBoundingClientRect();
+        scene.position.set(bounds.left + bounds.width / 2 - view.left - view.width / 2,
+          -(bounds.top + scrollY + bounds.height / 2), options.depth ?? 20);
+        scene.scale.setScalar(bounds.height / (2 * fitted.y * 1.06));
+      };
       const render = () => {
-        if (!disposed && !failed) renderer.render(scene, cam);
+        if (disposed || failed) return;
+        if (host) { place(); host.invalidate({ dynamic: true }); }
+        else renderer.render(scene, cam);
       };
       c.addEventListener("webglcontextlost", fallback);
       /* Widening from inside the ResizeObserver trips its loop guard, so the canvas is given the
@@ -517,6 +541,7 @@ export function createLaunchControls(element, options) {
         const w = c.clientWidth,
           h = c.clientHeight;
         if (!w || !h) return;
+        if (host) { render(); return; }
         {
           const gll = renderer.getContext();
           const mt = gll.getParameter(gll.MAX_TEXTURE_SIZE) || 16384;
@@ -537,13 +562,13 @@ export function createLaunchControls(element, options) {
       resize.observe(c);
       cleanups.push(() => resize.disconnect());
       fit();
-      frame(() => {
+      if (!host) frame(() => {
         fit();
         frame(fit);
       });
       let animationFrame = null;
       const spin = (t) => {
-        animationFrame = null;
+        if (!host) animationFrame = null;
         if (motion.matches || !vis || document.hidden || disposed || failed)
           return;
         const rr = rScale();
@@ -572,16 +597,19 @@ export function createLaunchControls(element, options) {
         fitted.tint?.(hv);
         if (fitted.tick) fitted.tick(t);
         if (c.offsetParent && vis) render();
-        animationFrame = frame(spin);
+        if (!host) animationFrame = frame(spin);
       };
       const updateAnimation = () => {
         if (animationFrame !== null) {
-          cancelAnimationFrame(animationFrame);
+          cancelFrame(animationFrame);
           scheduled.delete(animationFrame);
           animationFrame = null;
         }
         if (motion.matches) render();
-        else if (vis && !document.hidden) animationFrame = frame(spin);
+        else if (vis && !document.hidden) {
+          animationFrame = host ? host.tick(spin) : frame(spin);
+          if (host) scheduled.add(animationFrame);
+        }
       };
       motion.addEventListener("change", updateAnimation);
       document.addEventListener("visibilitychange", updateAnimation);
@@ -785,6 +813,7 @@ export function createLaunchControls(element, options) {
           frame: frame, tint: (amount) => tint(cycleLabel, amount) };
       });
       const bakePlatform = (b, canvas = mainC, render = renderMain) => {
+        if (host) return;
         if (b.lightingStarted || !b.lettered) return;
         b.lightingStarted = true;
         const snapshot = new THREE.Scene();
