@@ -347,12 +347,25 @@ export function createCapacity(canvas, options) {
         const surface = document.createElement('canvas'); surface.width = surface.height = 256;
         const context = surface.getContext('2d');
         context.font = '160px sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
-        const metrics = context.measureText(symbol);
-        const inkHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
         context.fillText(symbol, 128, 140);
-        const side = capHeight ? capHeight * 256 / Math.max(1, inkHeight) : 0.4;
         const texture = new THREE.CanvasTexture(surface); texture.colorSpace = THREE.SRGBColorSpace; textures.add(texture);
-        return new THREE.Mesh(new THREE.PlaneGeometry(side, side),
+        let width = 0.4, height = 0.4;
+        if (capHeight) {
+          const pixels = context.getImageData(0, 0, 256, 256).data;
+          let left = 256, top = 256, right = -1, bottom = -1;
+          for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+            if (pixels[(y * 256 + x) * 4 + 3] < 16) continue;
+            left = Math.min(left, x); right = Math.max(right, x);
+            top = Math.min(top, y); bottom = Math.max(bottom, y);
+          }
+          if (right >= left && bottom >= top) {
+            const inkWidth = right - left + 1, inkHeight = bottom - top + 1;
+            width = capHeight * inkWidth / inkHeight; height = capHeight;
+            texture.repeat.set(inkWidth / 256, inkHeight / 256);
+            texture.offset.set(left / 256, 1 - (bottom + 1) / 256);
+          }
+        }
+        return new THREE.Mesh(new THREE.PlaneGeometry(width, height),
           new THREE.MeshBasicMaterial({ map: texture, transparent: true }));
       };
       const addText = (page, label, x, y, color, { right = false, maxWidth = Infinity } = {}) => {
@@ -399,8 +412,16 @@ export function createCapacity(canvas, options) {
         pages.push(page);
       }
       let cursor = 0;
+      const capital = text('G', COLORS.text, 0.2);
+      const capitalBounds = capital.mesh.geometry.boundingBox;
+      const capHeight = capitalBounds.max.y - capitalBounds.min.y;
+      const capCenter = (capitalBounds.min.y + capitalBounds.max.y) / 2;
+      capital.mesh.geometry.dispose(); capital.mesh.material.dispose();
       const tickItem = (label, symbol) => {
-        if (symbol) { const capHeight = (font.data.glyphs.G.y_max ?? 1043) / font.data.resolution * 0.2; const icon = flag(symbol, capHeight); icon.position.set(cursor + 0.24, capHeight / 2, 0); ticker.add(icon); cursor += 0.55; }
+        if (symbol) {
+          const icon = flag(symbol, capHeight), width = icon.geometry.parameters.width;
+          icon.position.set(cursor + width / 2, capCenter, 0); ticker.add(icon); cursor += width + 0.14;
+        }
         const value = text(label, COLORS.text, 0.2);
         value.mesh.position.x = cursor; ticker.add(value.mesh); cursor += value.width;
         const separator = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: COLORS.text }));
