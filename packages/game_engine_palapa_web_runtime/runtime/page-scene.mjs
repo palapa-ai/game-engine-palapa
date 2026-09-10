@@ -17,7 +17,7 @@ export function createPageScene(canvas, options = {}) {
   scene.add(new THREE.AmbientLight(0xffffff, 0.8));
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b8b8, 0.7));
 
-  const budget = new FrameBudget();
+  const budget = new FrameBudget({ tiles: 8 });
   const timer = gpuTimer(renderer.getContext());
   const staticTarget = new THREE.WebGLRenderTarget(1, 1, {
     minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,

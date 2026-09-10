@@ -8,4 +8,20 @@ Import runtime modules directly from JavaScript, or use `WebRuntime.load('hero/t
 
 Visible surfaces receive rendering priority. Offscreen surfaces continue in throttled batches, and hidden tabs pause work. `downloadAssets` reports actual streamed bytes against a build manifest and suppresses numbers when lengths cannot be verified. `rubber` supplies a matte, nonmetallic material that scene normalization preserves.
 
+`createPageScene` hosts a whole page in one scene, with a merged static tracing
+structure and dynamic overlays. `createTextSurface`, launch controls, capacity
+tables, and authored scene assets can share that host. Stationary table content
+joins the trace; moving content does not reset accumulation. Animation receives
+priority under a 16ms frame budget, using asynchronous GPU timings when available
+and frame cadence otherwise. Individual GPU draws and initial compilation cannot
+be preempted, so this is a performance target rather than a frame-rate guarantee.
+
+Author geometry and materials in OpenUSD in the consuming repository. With the
+OpenUSD Python SDK installed, `python tool/compile_usd.py scene.usda scene.scene.json`
+from the engine repository produces indexed buffers for `loadSceneAsset`. The
+compiler supports polygon meshes, transforms, material subsets, normals/UVs, and
+UsdPreviewSurface color, roughness, metalness, emission, opacity, and IOR. Glass
+uses physical transmission in the web material. Bake texture connections before
+compiling; this is a runtime export subset, not a general USD composition engine.
+
 Run `node --test test/*.mjs` and `dart analyze lib` in this package.

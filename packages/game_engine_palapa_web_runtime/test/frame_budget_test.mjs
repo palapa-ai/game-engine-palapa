@@ -45,6 +45,15 @@ test('GPU timings adapt tiles without waiting for CPU frame overruns', () => {
   assert.equal(budget.allows(118), true);
 });
 
+test('sustainable ray work uses available time without needlessly shrinking tiles', () => {
+  const budget = new FrameBudget({ tiles: 8 });
+  budget.paint(2);
+  budget.ray(0.1, 9, 8);
+  budget.begin(100);
+  assert.equal(budget.tiles, 8);
+  assert.equal(budget.allows(100.5), true);
+});
+
 test('a hidden or idle page resumes without treating the pause as a slow frame', () => {
   const budget = new FrameBudget();
   budget.begin(0);

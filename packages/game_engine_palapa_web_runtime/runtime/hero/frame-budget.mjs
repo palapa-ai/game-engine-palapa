@@ -42,7 +42,8 @@ export class FrameBudget {
     if (Number.isFinite(gpuMs)) {
       this.rayGpuMs = smooth(this.rayGpuMs, gpuMs * (tiles / this.tiles) ** 2);
     }
-    if (this.rayCpuMs + this.rayGpuMs > 4) this.shrink();
+    const available = this.milliseconds - this.paintGpuMs - this.reserve;
+    if ((this.rayCpuMs + this.rayGpuMs) * 1.25 > available) this.shrink();
   }
   allows(now, pending = false) {
     this.remaining = Math.max(0, this.milliseconds - (now - this.started) - this.paintGpuMs - this.reserve);

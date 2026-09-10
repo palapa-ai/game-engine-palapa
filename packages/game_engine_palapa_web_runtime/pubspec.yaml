@@ -10,6 +10,8 @@ dependencies:
   web: ^1.1.1
 flutter:
   assets:
+    - runtime/
+    - runtime/assets/
     - runtime/background/
     - runtime/capacity/
     - runtime/hero/
