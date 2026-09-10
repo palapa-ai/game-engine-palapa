@@ -353,7 +353,7 @@ export function mountBrickWall(host) {
     traced.remove();
   }
   try {
-    host.style.position = 'relative';
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host.style.width = '100%';
     host.style.height = '100%';
     host.style.overflow = 'hidden';
