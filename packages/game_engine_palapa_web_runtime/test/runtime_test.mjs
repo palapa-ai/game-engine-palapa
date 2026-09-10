@@ -4,7 +4,7 @@ import { readdir, readFile, access } from 'node:fs/promises';
 import { transitionPages } from '../runtime/capacity/transitions.mjs';
 import * as THREE from '../runtime/hero/vendor/three.module.min.js';
 import { FontLoader } from '../runtime/hero/vendor/FontLoader.js';
-import { layoutDocument } from '../runtime/hero/text3d.mjs';
+import { layoutDocument, buildTextGroup } from '../runtime/hero/text3d.mjs';
 import { revealPage } from '../runtime/hero/reveal.mjs';
 
 const root = new URL('../runtime/', import.meta.url);
@@ -164,4 +164,33 @@ test('render settings notify only real valid changes and release disposed subscr
   unsubscribe();
   renderSettings.update({samples:null,resolution:1,bounces:4});
   assert.equal(seen.length,1);
+});
+
+
+test('shared text geometry fits page coordinates and preserves semantic layout', () => {
+  const font = new FontLoader().parse({ resolution: 1000, boundingBox: { yMin: -200, yMax: 800 }, underlineThickness: 50, glyphs: {
+    '?': { ha: 700, o: 'm 0 -200 l 700 -200 l 700 800 l 0 800 l 0 -200' },
+    ' ': { ha: 350 },
+  } });
+  for (const width of [180, 880]) {
+    const rowContent = { rows: [
+      [{ text: 'Free for everyone', color: 0x73c991 }],
+      [{ text: 'World supercomputer', color: 0xff66cc }],
+    ], maxSize: 200, fill: 1 };
+    const paragraphContent = { paragraphs: [
+      { spans: [{ text: 'App maker', color: 0xffffff }], size: 22, gapAfter: 8 },
+      { spans: [{ text: 'Terms and Privacy', color: 0xffffff, href: '/privacy-policy' }], size: 16 },
+    ], inset: 12 };
+    for (const content of [rowContent, paragraphContent]) {
+      const { group, height, layout } = buildTextGroup(font, content, width);
+      const bounds = new THREE.Box3().setFromObject(group);
+      assert.ok(bounds.min.x >= -width / 2 - .001);
+      assert.ok(bounds.max.x <= width / 2 + .001);
+      assert.ok(bounds.max.y <= .001);
+      assert.ok(bounds.min.y >= -height - .001);
+      assert.ok(Math.abs(bounds.max.z - 20) < .001);
+      if (content.paragraphs) assert.deepEqual(layout, layoutDocument(font, content.paragraphs, width, 12));
+      group.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+    }
+  }
 });

@@ -58,14 +58,13 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   // Missed camera rays expose the page wall without removing environment lighting.
   scene.background = null;
 
-  // Depth of field only exists on a PhysicalCamera (the tracer instanceof-checks
-  // it), so the raster PerspectiveCamera is upgraded in place.
-  const cam = new PhysicalCamera(camera.fov, camera.aspect, camera.near, camera.far);
-  cam.position.copy(camera.position);
-  cam.quaternion.copy(camera.quaternion);
-  cam.bokehSize = 0;
-  cam.updateProjectionMatrix();
-  camera = cam;
+  if (camera.isPerspectiveCamera) {
+    const cam = new PhysicalCamera(camera.fov, camera.aspect, camera.near, camera.far);
+    cam.copy(camera);
+    cam.bokehSize = 0;
+    cam.updateProjectionMatrix();
+    camera = cam;
+  }
 
   const pt = new WebGLPathTracer(renderer);
   // Cap the render target at the device's max texture size — oversized float

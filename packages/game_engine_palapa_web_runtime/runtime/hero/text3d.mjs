@@ -187,6 +187,47 @@ export function layoutDocument(font, paragraphs, width, inset = 0) {
   return { entries, height };
 }
 
+export function buildTextGroup(font, definition, width) {
+  if (!(width > 0)) throw RangeError("Text width must be positive");
+  const content = { rows: [], paragraphs: [], maxSize: 16, fill: 1, inset: 0, ...definition };
+  const group = new THREE.Group();
+  const layout = content.paragraphs.length
+    ? layoutDocument(font, content.paragraphs, width, content.inset) : null;
+  const widest = Math.max(1, ...content.rows.map(segments => rowEm(font, segments)));
+  const size = Math.min(content.maxSize, content.fill * width / widest);
+  const height = layout ? layout.height : (content.rows.length * LINE + PAD) * size;
+  const front = 20;
+  if (layout) {
+    layout.entries.forEach(entry => {
+      if (entry.slot) return;
+      if (entry.dividerColor != null) {
+        const depth = entry.size * 0.2;
+        const opacity = (entry.dividerColor >>> 24) / 255;
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(entry.width, entry.size, depth),
+          new THREE.MeshStandardMaterial({ color: entry.dividerColor & 0xffffff,
+            opacity, transparent: opacity < 1, roughness: 0.35, metalness: 0.05 }),
+        );
+        mesh.position.set(-width / 2 + entry.x + entry.width / 2,
+          -entry.top - entry.size / 2, front - depth / 2);
+        group.add(mesh);
+      } else {
+        const item = word(font, entry.text, entry.color, entry.size);
+        item.mesh.position.set(-width / 2 + entry.x, -entry.baseline, front - entry.size * 0.2);
+        group.add(item.mesh);
+      }
+    });
+  } else {
+    content.rows.forEach((segments, index) => {
+      const line = new THREE.Group();
+      line.position.set(0, -size * (FIRST_BASELINE + index * LINE), front - size * 0.2);
+      group.add(line);
+      row(font, segments, size, line, Math.max(1, width - 4));
+    });
+  }
+  return { group, height, layout };
+}
+
 export function createText3d(canvas, options) {
   let content = {
     rows: [], paragraphs: [], maxSize: 16, fill: 1, inset: 0,
@@ -276,17 +317,8 @@ export function createText3d(canvas, options) {
     if (!content.rows.length && !content.paragraphs.length) return;
     const key = String(width) + "x" + ratio + ":" + revision;
     if (key === drawn) return;
-    let layout = null;
-    let size = 0;
-    let height = 0;
-    if (content.paragraphs.length) {
-      layout = layoutDocument(font, content.paragraphs, width, content.inset);
-      height = layout.height;
-    } else {
-      const widest = Math.max(...content.rows.map((segments) => rowEm(font, segments)));
-      size = Math.min(content.maxSize, content.fill * width / Math.max(widest, 1));
-      height = (content.rows.length * LINE + PAD) * size;
-    }
+    const built = buildTextGroup(font, content, width);
+    const { layout, height } = built;
     const scale = Math.min(
       ratio * renderSettings.value.resolution, MAX_PIXEL_RATIO * renderSettings.value.resolution, Math.sqrt(MAX_PIXELS / (width * height)),
       renderer.capabilities.maxTextureSize / Math.max(width, height),
@@ -300,48 +332,9 @@ export function createText3d(canvas, options) {
     light(scene);
     const world = 2 * HALF_W / width;
     const half = height * world / 2;
-    if (layout) {
-      layout.entries.forEach((entry) => {
-        if (entry.slot) return;
-        if (entry.dividerColor != null) {
-          const thickness = entry.size * world;
-          const depth = thickness * 0.2;
-          const opacity = (entry.dividerColor >>> 24) / 255;
-          const mesh = new THREE.Mesh(
-            new THREE.BoxGeometry(entry.width * world, thickness, depth),
-            new THREE.MeshStandardMaterial({
-              color: entry.dividerColor & 0xffffff,
-              opacity, transparent: opacity < 1,
-              roughness: 0.35, metalness: 0.05,
-            }),
-          );
-          mesh.position.set(
-            -HALF_W + (entry.x + entry.width / 2) * world,
-            half - (entry.top + entry.size / 2) * world,
-            -depth / 2,
-          );
-          scene.add(mesh);
-          return;
-        }
-        const item = word(font, entry.text, entry.color, entry.size * world);
-        // Keep the front face on the measured plane so links and canvas edges agree.
-        item.mesh.position.set(
-          -HALF_W + entry.x * world,
-          half - entry.baseline * world,
-          -entry.size * world * 0.2,
-        );
-        scene.add(item.mesh);
-      });
-    } else {
-      const face = size * world;
-      content.rows.forEach((segments, index) => {
-        const line = new THREE.Group();
-        line.position.y = half - face * (FIRST_BASELINE + index * LINE);
-        line.position.z = -face * 0.2;
-        scene.add(line);
-        row(font, segments, face, line, (width - 4) * world);
-      });
-    }
+    built.group.scale.setScalar(world);
+    built.group.position.set(0, half, -20 * world);
+    scene.add(built.group);
     const camera = new THREE.PerspectiveCamera(
       30, HALF_W / half, 0.1, Math.max(50, half / TAN + 20),
     );
