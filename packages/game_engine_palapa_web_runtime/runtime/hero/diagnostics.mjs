@@ -86,7 +86,7 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
     root.querySelector('[data-setting="bounces"]').textContent = active && active < target
       ? `${active} → ${target} bounces` : `${target} bounces`;
     const { total, perSecond } = statistics.read();
-    root.getElementById('rays').textContent = `${number.format(total)} total camera rays`;
+    root.getElementById('rays').textContent = `${number.format(total)} total rays`;
     root.getElementById('rate').textContent = `${number.format(perSecond)} camera rays/s`;
     const status = enabled.length === 0 ? 'Ray tracing off'
       : enabled.some(trace => trace.source?.state === 'fallback') ? 'Ray tracing unavailable'
