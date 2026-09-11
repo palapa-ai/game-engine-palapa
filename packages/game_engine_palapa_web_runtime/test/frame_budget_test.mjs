@@ -448,3 +448,27 @@ test('changing viewport height invalidates old queries and measured batching rea
   budget.ray(0.1, 2, 2, 1, 1, budget.measurementEpoch, 3);
   assert.equal(budget.batch(100), 4);
 });
+
+test('tracing can recover with a small positive frame allowance instead of starving below four milliseconds', () => {
+  const budget = new FrameBudget({ tiles: 2, maxTiles: 8 });
+  budget.scale = 0.5;
+  budget.setViewportHeight(256);
+  budget.paint(12);
+  budget.rayCpuMs = 2;
+  const probes = [];
+  for (let frame = 0; frame < 180; frame++) {
+    const time = frame * 1000 / 60;
+    budget.begin(time);
+    if (budget.batch(time + 1)) {
+      probes.push(time);
+      assert.equal(budget.probeAllowed, true);
+      assert.equal(budget.batch(time + 1, true), 0, 'pending GPU work still blocks a probe');
+      budget.submitted();
+    }
+  }
+  assert.ok(probes.length >= 2, 'one millisecond of headroom must not permanently stall tracing');
+  assert.ok(probes.every((time, index) => !index || time - probes[index - 1] >= 1000));
+  assert.equal(budget.scale, budget.minScale);
+  budget.begin(4000);
+  assert.equal(budget.batch(4002), 0, 'no probe when presentation leaves no room');
+});

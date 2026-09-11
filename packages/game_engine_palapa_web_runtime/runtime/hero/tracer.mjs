@@ -246,5 +246,6 @@ export async function attachTracer(renderer, scene, camera, cfg) {
     get target() { return pt.target; },
     get compiling() { return !!pt.isCompiling; },
     get samples() { return pt.samples; },
+    get cameraRays() { return pt.cameraRays; },
   };
 }

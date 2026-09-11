@@ -64,7 +64,7 @@ function harness({ width = 5, height = 7, columns = 1, rows = 4, subframe, alpha
     _renderer: renderer, _primaryTarget: target(), _blendTargets: [target(), target()],
     _sobolTarget: { texture: {} }, _subframe: subframe ?? new Vector4(0, 0, 1, 1),
     _opacityFactor: 1, _alpha: alpha, tiles: new Vector2(columns, rows), stableTiles,
-    samples: 0, _compilePromise: null, _task: null, _currentTile: stableTiles ? 0 : 2,
+    samples: 0, cameraRays: 0, _compilePromise: null, _task: null, _currentTile: stableTiles ? 0 : 2,
     _fsQuad: {
       material,
       render() {
@@ -266,4 +266,25 @@ test('opaque renderer retains primary target and skips alpha copies', () => {
   assert.equal(h.tracer.target, h.tracer._primaryTarget);
   assert.equal(h.tracer.samples, 1);
   assert.deepEqual(h.draws, []);
+});
+
+test('camera ray totals count physical pixels across uneven bands, resets, and grids', () => {
+  for (const options of [
+    { columns: 1, rows: 4 },
+    { columns: 2, rows: 4 },
+    { columns: 2, rows: 4, stableTiles: false },
+    { columns: 1, rows: 4, subframe: new Vector4(0.2, 0.1, 0.6, 0.7) },
+    { columns: 1, rows: 4, subframe: new Vector4(0.8, 0.8, 0.6, 0.7) },
+  ]) {
+    const h = harness(options);
+    for (let index = 0; index < 20; index++) {
+      h.update(index % 4 + 1);
+      assert.equal(h.tracer.cameraRays, h.pathDraws.reduce((sum, draw) => sum + draw.pixels, 0));
+      if (index === 10) {
+        h.tracer.samples = 0;
+        h.tracer._task = null;
+      }
+    }
+    assert.ok(h.tracer.cameraRays > 0);
+  }
 });

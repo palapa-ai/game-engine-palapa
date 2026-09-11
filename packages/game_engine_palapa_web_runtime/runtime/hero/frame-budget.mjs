@@ -159,8 +159,8 @@ export class FrameBudget {
     // reduce the work, even while submissions are blocked. At the smallest
     // target, one tiny probe per second can detect that GPU contention ended.
     // It still cannot guarantee a deadline when another process owns the GPU.
-    if (this.remaining >= 4 && ++this.blockedFrames >= 3) {
-      if (!this.shrink() && now - Math.max(this.lastSubmission, this.lastProbe) >= 1000) {
+    if (++this.blockedFrames >= 3) {
+      if (!this.shrink() && this.remaining >= 0.5 && now - Math.max(this.lastSubmission, this.lastProbe) >= 1000) {
         this.probes++;
         this.lastProbe = now;
         this.probeAllowed = true;

@@ -52,6 +52,7 @@ export function createPageScene(canvas, options = {}) {
 
   const budget = new FrameBudget({ tiles: 2, maxTiles: 8 });
   budget.scale = 0.5;
+  let cameraRays = 0;
   let qualityPass = new ProgressiveTrace(settings.value.bounces);
   let resolutionPass = new ProgressiveResolution();
   const timer = gpuTimer(renderer.getContext());
@@ -189,6 +190,7 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceStageTargetSamples = String(traceStage === 'foreground' ? Math.min(4, selectedSamples) : resolutionPass.sampleTarget(tracer?.scale ?? budget.scale, selectedSamples));
     canvas.dataset.traceRevision = String(revision);
     canvas.dataset.traceSamples = String(tracer?.samples || 0);
+    canvas.dataset.traceCameraRays = String(cameraRays);
     canvas.dataset.traceTargetSamples = String(settings.value.samples ?? AUTO_SAMPLES);
     canvas.dataset.traceBounces = String(qualityPass.bounces);
     canvas.dataset.traceTargetBounces = String(qualityPass.target);
@@ -469,6 +471,7 @@ export function createPageScene(canvas, options = {}) {
           if (reset) resetReveal();
           const started = performance.now(), divisions = budget.tiles;
           const previousSamples = tracer.samples;
+          const previousRays = tracer.cameraRays;
           // End at a sample boundary so quality/stage changes keep their order.
           const remainingBands = Math.max(1, Math.round((Math.floor(previousSamples) + 1 - previousSamples) * tracer.rows));
           const bands = Math.min(reset ? 1 : batch, remainingBands);
@@ -478,6 +481,7 @@ export function createPageScene(canvas, options = {}) {
           let sampled, submittedBands = 0;
           try { sampled = tracer.sample(bands, { present: false }); }
           finally {
+            cameraRays += tracer.cameraRays - previousRays;
             submittedBands = Math.round((tracer.samples - previousSamples) * tracer.rows);
             timer.end({ bands: submittedBands });
           }
@@ -617,6 +621,7 @@ export function createPageScene(canvas, options = {}) {
     },
     get state() { return phase; },
     get samples() { return tracer?.samples || 0; },
+    get cameraRays() { return cameraRays; },
     dispose() {
       if (disposed) return;
       disposed = true;

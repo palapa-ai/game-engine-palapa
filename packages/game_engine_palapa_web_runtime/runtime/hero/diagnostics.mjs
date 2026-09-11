@@ -1,4 +1,5 @@
 import { renderSettings } from './render-settings.mjs';
+import { RayStatistics } from './ray-statistics.mjs';
 
 export function createFrameCounter(element) {
   let frame = 0, count = 0, start = performance.now();
@@ -19,12 +20,12 @@ export function createDiagnostics(element, source, { traces = [] } = {}) {
   const root = element.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     :host{position:fixed;right:12px;top:12px;z-index:20;width:216px;max-height:calc(100dvh - 24px);overflow:auto;color:#fff;background:#151515ed;border:1px solid #444;font:12px/1.5 ui-monospace,monospace;border-radius:6px;box-shadow:0 4px 24px #0006}
-    *{box-sizing:border-box}label{display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer}input{accent-color:#66f5f5}summary{cursor:pointer;padding:12px;font-weight:600}section{padding:0 12px 12px}button{display:block;width:100%;margin-bottom:10px;font:inherit;color:inherit;background:#282828;border:1px solid #555;border-radius:3px;padding:6px;cursor:pointer}button:focus-visible{outline:2px solid #66f5f5}output{display:block;font-variant-numeric:tabular-nums}hr{border:0;border-top:1px solid #444;margin:12px 0}
+    *{box-sizing:border-box}label{display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer}input{accent-color:#66f5f5}summary{cursor:pointer;padding:12px;font-weight:600}section{padding:0 12px 12px}button{display:block;width:100%;margin-bottom:10px;font:inherit;color:inherit;background:#282828;border:1px solid #555;border-radius:3px;padding:6px;cursor:pointer}button:focus-visible{outline:2px solid #66f5f5}output{display:block;font-variant-numeric:tabular-nums;white-space:pre-line}output[hidden]{display:none}hr{border:0;border-top:1px solid #444;margin:12px 0}
   </style><details open><summary>Debug</summary><section>
     <div id="traces"></div><button type="button" data-setting="samples"></button>
     <button type="button" data-setting="bounces"></button>
     <button type="button" data-setting="resolution"></button>
-    <button type="button" id="reset">Reset</button><hr><output id="fps"></output><output id="page">Loading page…</output><output id="trace">Ray tracing queued</output><output id="spp"></output>
+    <button type="button" id="reset">Reset</button><hr><output id="fps"></output><output id="page">Loading page…</output><output id="rays"></output><output id="rate"></output><output id="spp"></output><output id="trace" hidden></output>
   </section></details>`;
   const traceHandles = traces.map(({ label, settings, source: traceSource }) => {
     const control = document.createElement('label');
@@ -58,12 +59,18 @@ export function createDiagnostics(element, source, { traces = [] } = {}) {
   const unsubscribe = renderSettings.subscribe(sync);
   sync();
   const fps = createFrameCounter(root.getElementById('fps'));
+  const statistics = new RayStatistics([source, ...traces.map(trace => trace.source)]);
+  const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+  root.getElementById('rays').title = 'Primary camera rays submitted since this page opened, across both tracing worlds and scene rebuilds. Bounce and shadow rays are not counted.';
+  root.getElementById('rate').title = 'Primary camera rays submitted per second of elapsed time, updated every second.';
   const seconds = milliseconds => `${(milliseconds / 1000).toFixed(2)}s`;
   const read = () => {
     const pageTime = Number(document.body.dataset.pageVisibleAt);
-    if (pageTime) root.getElementById('page').textContent = `${seconds(pageTime)} page loading time`;
-    const data = source.renderer.domElement.dataset;
-    const start = Number(data.traceStartedAt), end = Number(data.traceFinishedAt);
+    if (pageTime) root.getElementById('page').textContent = `${seconds(pageTime)} page load`;
+    const enabled = traces.length ? traces.filter(trace => trace.settings.value.enabled)
+      : renderSettings.value.enabled ? [{ source }] : [];
+    const current = enabled.find(trace => trace.source === source)?.source ?? enabled[0]?.source ?? source;
+    const data = current.renderer.domElement.dataset;
     const active = Number(data.traceBounces), target = renderSettings.value.bounces;
     const resolution = renderSettings.value.resolution * 100;
     const currentResolution = resolution * Number(data.traceResolutionScale || 1);
@@ -71,12 +78,20 @@ export function createDiagnostics(element, source, { traces = [] } = {}) {
       ? `${Number(currentResolution.toFixed(1))} → ${resolution}% resolution` : `${resolution}% resolution`;
     root.querySelector('[data-setting="bounces"]').textContent = active && active < target
       ? `${active} → ${target} bounces` : `${target} bounces`;
-    root.getElementById('trace').textContent = source.state === 'raster' ? 'Ray tracing off' : source.state === 'fallback' ? 'Ray tracing unavailable'
-      : start ? `${seconds((end || performance.now()) - start)} ray tracing time` : 'Ray tracing queued';
-    root.getElementById('trace').title = 'Elapsed time since the current scene rebuild began, including setup. Resets when the scene changes; stops at the sample target.';
-    root.getElementById('spp').textContent = `${source.samples > 0 && source.samples < 1 ? source.samples.toFixed(2) : Math.floor(source.samples)} spp`;
-    root.getElementById('spp').title = 'Accumulated samples per pixel in the visible area at the current resolution.';
-    if (start && end) element.dataset.traceDurationMs = String(end - start);
+    const { total, perSecond } = statistics.read();
+    root.getElementById('rays').textContent = `${number.format(total)} total camera rays`;
+    root.getElementById('rate').textContent = `${number.format(perSecond)} camera rays/s`;
+    const status = enabled.length === 0 ? 'Ray tracing off'
+      : enabled.some(trace => trace.source?.state === 'fallback') ? 'Ray tracing unavailable'
+      : enabled.some(trace => ['starting', 'loading'].includes(trace.source?.state)) ? 'Preparing ray tracing…' : '';
+    root.getElementById('trace').hidden = !status;
+    root.getElementById('trace').textContent = status;
+    root.getElementById('spp').textContent = enabled.map(trace => {
+      const samples = trace.source?.samples ?? 0;
+      const value = samples > 0 && samples < 1 ? samples.toFixed(2) : Math.floor(samples);
+      return `${value} spp${trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
+    }).join('\n');
+    root.getElementById('spp').title = 'Accumulated samples per pixel at the current resolution in each enabled world. Scene, camera, and quality changes restart accumulation; total camera rays keep counting.';
   };
   const timer = setInterval(read, 250);
   read();
