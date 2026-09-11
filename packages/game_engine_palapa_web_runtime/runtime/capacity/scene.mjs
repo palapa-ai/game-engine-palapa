@@ -8,6 +8,7 @@ import { LineMaterial } from '../hero/vendor/LineMaterial.js';
 import { transitionPages } from './transitions.mjs';
 import { lightMovingGroup } from './lighting.mjs';
 import { antiqueMap, antiqueMount } from './antique-globe.mjs';
+import { historicalMapTexture } from './map-texture.mjs';
 
 const COLORS = { text: 0xffffff, grey: 0xffffff, green: 0x73c991 };
 const LEFT = -0.36;
@@ -297,17 +298,16 @@ export function createCapacity(canvas, options) {
     dispose();
   };
   const lost = event => { event.preventDefault(); fail(); };
-  // NASA Blue Marble: https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57735/land_ocean_ice_cloud_2048.jpg
-  const earthTexture = async () => {
-    const response = await fetch(options.earthUrl, { signal: request.signal });
-    if (!response.ok) throw new Error('Earth image unavailable');
+  const imageTexture = async (source, project) => {
+    const response = await fetch(source, { signal: request.signal });
+    if (!response.ok) throw new Error('Globe image unavailable');
     const url = URL.createObjectURL(await response.blob());
     try {
       const image = new Image();
       image.src = url;
       await image.decode();
       if (dead) return null;
-      const texture = new THREE.Texture(image);
+      const texture = project ? project(image) : new THREE.Texture(image);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.needsUpdate = true;
       textures.add(texture);
@@ -322,7 +322,7 @@ export function createCapacity(canvas, options) {
           if (!response.ok) throw new Error('Font unavailable');
           return response.json();
         }),
-        earthTexture(),
+        imageTexture(options.earthUrl),
         fetch(options.landUrl, { signal: request.signal }).then(response => {
           if (!response.ok) throw new Error('Land unavailable');
           return response.json();
@@ -524,6 +524,21 @@ export function createCapacity(canvas, options) {
         }));
       }
       options.onReady();
+      if (options.antiqueMap) {
+        // Keep this optional scan outside the first-frame/loading critical path.
+        void imageTexture(options.antiqueMap.url, image => historicalMapTexture(image, options.antiqueMap))
+          .then(texture => {
+            if (!texture || dead) return;
+            const placeholder = antiqueMaterial.map;
+            texture.anisotropy = earth.anisotropy;
+            antiqueMaterial.map = texture;
+            antiqueMaterial.needsUpdate = true;
+            textures.delete(placeholder);
+            placeholder.dispose();
+            render();
+          })
+          .catch(error => { if (!dead) console.warn('Historical globe map unavailable', error); });
+      }
     } catch (_) { if (!dead) fail(); }
   };
   let loading = false, backgroundLoad = 0;
