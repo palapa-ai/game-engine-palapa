@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Vector2, Vector4 } from '../runtime/hero/vendor/three.module.min.js';
 import { PathTracingRenderer } from '../runtime/hero/vendor/three-gpu-pathtracer.module.js';
-import { scanlineRows } from '../runtime/hero/scanline.mjs';
+import { scanlineCoverage, scanlineRows } from '../runtime/hero/scanline.mjs';
 
 // Run the vendor's actual tile scheduler without creating a WebGL context.
 // The fake draw calls evaluate the shader's weighted-alpha operation on pixels.
@@ -59,7 +59,7 @@ function harness({ width = 5, height = 7, columns = 1, rows = 4, subframe, alpha
     stratifiedTexture: { init() {}, next() {} },
   };
   const blendMaterial = {};
-  const draws = [];
+  const draws = [], pathDraws = [];
   const tracer = Object.assign(Object.create(PathTracingRenderer.prototype), {
     _renderer: renderer, _primaryTarget: target(), _blendTargets: [target(), target()],
     _sobolTarget: { texture: {} }, _subframe: subframe ?? new Vector4(0, 0, 1, 1),
@@ -68,9 +68,10 @@ function harness({ width = 5, height = 7, columns = 1, rows = 4, subframe, alpha
     _fsQuad: {
       material,
       render() {
-        visitPixels((x, y, index) => {
+        const pixels = visitPixels((x, y, index) => {
           renderer.target.texture.data.set(sample(material.seed, x, y), index);
         });
+        pathDraws.push({ pixels });
       },
     },
     _blendQuad: {
@@ -96,8 +97,8 @@ function harness({ width = 5, height = 7, columns = 1, rows = 4, subframe, alpha
       },
     },
   });
-  function update() {
-    tracer.update();
+  function update(bands = 1) {
+    tracer.update(bands);
     assert.equal(renderer.getRenderTarget(), screen);
     assert.deepEqual(renderer.viewport, screen.viewport, 'restore viewport');
     assert.deepEqual(renderer.scissor, screen.scissor, 'restore scissor');
@@ -107,7 +108,7 @@ function harness({ width = 5, height = 7, columns = 1, rows = 4, subframe, alpha
     assert.deepEqual(renderer.globalScissor, new Vector4(1, 1, 10, 11));
     assert.ok(tracer._blendTargets.every(target => !target.scissorTest), 'reset must still clear complete targets');
   }
-  return { tracer, update, draws, width, height };
+  return { tracer, update, draws, pathDraws, width, height };
 }
 
 function sample(pass, x, y) {
@@ -158,13 +159,83 @@ test('partial passes expose the current buffer and preserve untouched bands', ()
   }
 });
 
-test('64 bands blend only two target areas per completed sample', () => {
+test('64 bands blend one target area initially and two per additional sample', () => {
   const h = harness({ width: 8, height: 64, rows: 64 });
   for (let tile = 0; tile < 128; tile++) h.update();
-  assert.equal(h.draws.filter(draw => draw.opacity === 0).length, 2, 'one carry-forward copy per pass');
-  assert.equal(h.draws.reduce((sum, draw) => sum + draw.pixels, 0), 4 * 8 * 64);
+  assert.equal(h.draws.filter(draw => draw.opacity === 0).length, 1, 'carry-forward copies start with the second pass');
+  assert.equal(h.draws.reduce((sum, draw) => sum + draw.pixels, 0), 3 * 8 * 64);
   assert.ok(h.draws.filter(draw => draw.opacity !== 0).every(draw => draw.pixels === 8));
 });
+
+test('coalesced scanlines match scalar pixels, weighted alpha, odd passes, and partial coverage', () => {
+  const scalar = harness({ width: 5, height: 11, rows: 8 });
+  const batched = harness({ width: 5, height: 11, rows: 8 });
+  for (let pass = 1; pass <= 4; pass++) {
+    const previous = batched.tracer.target;
+    for (const bands of [3, 4, 1]) {
+      batched.update(bands);
+      for (let i = 0; i < bands; i++) scalar.update();
+      assert.equal(batched.tracer.samples, scalar.tracer.samples);
+      assert.deepEqual(batched.tracer.target.texture.data, scalar.tracer.target.texture.data);
+      assert.equal(scanlineCoverage(batched.tracer.samples % 1, 11, 8),
+        scanlineCoverage(scalar.tracer.samples % 1, 11, 8));
+    }
+    if (pass > 1) assert.notEqual(batched.tracer.target, previous, 'each odd/even pass exposes the newly accumulated target');
+    for (let y = 0; y < 11; y++) for (let x = 0; x < 5; x++) {
+      close(batched.tracer.target.texture.data.subarray((y * 5 + x) * 4), expected(pass, x, y), `pass ${pass}, pixel ${x},${y}`);
+    }
+  }
+});
+
+test('an admitted four-band batch uses two draws instead of eight, with identical pixels', () => {
+  const scalar = harness({ width: 5, height: 11, rows: 8 });
+  const batched = harness({ width: 5, height: 11, rows: 8 });
+  // Compare an interior batch independently of sample-start work.
+  for (const h of [scalar, batched]) { h.update(); h.draws.length = 0; h.pathDraws.length = 0; }
+  batched.update(4);
+  for (let i = 0; i < 4; i++) scalar.update();
+  assert.equal(scalar.draws.length + scalar.pathDraws.length, 8);
+  assert.equal(batched.draws.length + batched.pathDraws.length, 2);
+  assert.equal(batched.tracer.samples, 5 / 8);
+  assert.equal(batched.draws[0].pixels, 25, 'the rectangle contains only the five newly traced physical rows');
+  assert.deepEqual(batched.tracer.target.texture.data, scalar.tracer.target.texture.data);
+  assert.equal(scanlineCoverage(batched.tracer.samples, 11, 8), 7 / 11);
+});
+
+test('a partial first sample skips the cleared-target copy and leaves unvisited rows transparent', () => {
+  const h = harness({ width: 3, height: 11, rows: 8 });
+  h.update(4);
+  assert.equal(h.draws.length, 1, 'only the newly traced rectangle is blended');
+  assert.equal(h.draws[0].pixels, 18);
+  assert.equal(h.draws[0].opacity, 1);
+  for (let y = 0; y < 11; y++) for (let x = 0; x < 3; x++) {
+    close(h.tracer.target.texture.data.subarray((y * 3 + x) * 4), y >= 5 ? expected(1, x, y) : [0, 0, 0, 0], `first pass ${x},${y}`);
+  }
+});
+
+test('coalescing stops at the sample boundary and never admits more than four bands', () => {
+  const h = harness({ width: 2, height: 6, rows: 6 });
+  h.update(99);
+  assert.equal(h.tracer.samples, 4 / 6, 'even an oversized request is capped at four bands');
+  h.update(4);
+  assert.equal(h.tracer.samples, 1, 'remaining work is not carried into a new sample');
+  h.update(2);
+  assert.equal(h.tracer.samples, 1 + 2 / 6);
+  for (let y = 0; y < 6; y++) for (let x = 0; x < 2; x++) {
+    close(h.tracer.target.texture.data.subarray((y * 2 + x) * 4), expected(y >= 4 ? 2 : 1, x, y), `partial second pass ${x},${y}`);
+  }
+});
+
+for (const options of [{ columns: 2, rows: 4 }, { rows: 4, stableTiles: false }]) {
+  test(`multi-column and unstable tile updates preserve scalar behavior: ${JSON.stringify(options)}`, () => {
+    const scalar = harness(options), requested = harness(options);
+    for (let i = 0; i < 16; i++) {
+      scalar.update(); requested.update(4);
+      assert.equal(requested.tracer.samples, scalar.tracer.samples);
+      assert.deepEqual(requested.tracer.target.texture.data, scalar.tracer.target.texture.data);
+    }
+  });
+}
 
 test('a 144-pixel preview clamps 1024 requested bands and completes without empty GPU draws', () => {
   const rows = scanlineRows(32, 144);

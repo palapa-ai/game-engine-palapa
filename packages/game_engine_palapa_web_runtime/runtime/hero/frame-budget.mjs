@@ -35,7 +35,9 @@ export class FrameBudget {
     const interval = this.previous === null ? 0 : timestamp - this.previous;
     this.cooldown = Math.max(0, this.cooldown - 1);
     if (interval > 18 && interval < 250) {
-      this.cooldown = Math.max(this.cooldown, 2);
+      // An externally slowed RAF cadence must let the cooldown expire. Only
+      // delay another submission when our preceding frame actually traced.
+      if (this.traced) this.cooldown = Math.max(this.cooldown, 2);
       this.lateFrames += this.traced ? 1 : 0;
       if (this.lateFrames >= 3) { this.shrink(); this.lateFrames = 0; }
     } else this.lateFrames = Math.max(0, this.lateFrames - 1);
@@ -116,11 +118,16 @@ export class FrameBudget {
       this.rayGpuMs = smooth(this.rayGpuMs, gpuMs / bands * rows / this.rows * (this.scale / scale) ** 2);
       const available = this.milliseconds - this.paintGpuMs - this.reserve;
       const predicted = (this.rayCpuMs + this.rayGpuMs) * 1.25;
+      const nextTiles = this.tiles > 2 ? this.tiles / 2 : this.tiles;
+      const nextScale = this.tiles > 2 ? this.scale : Math.min(1, this.scale * 2);
+      const nextGpuMs = this.rayGpuMs * (nextScale / this.scale) ** 2 * this.rows / this.rowsFor(nextTiles, nextScale);
       if (predicted > available) this.shrink();
-      else if (sameWork && predicted * 4 < available && (this.tiles > 2 || this.scale < 1)) {
-        // Observe at least a whole sample before changing tiling, and a longer
-        // stable window before increasing target resolution and restarting it.
-        const observations = this.tiles > 2 ? Math.max(24, this.rows) : 120;
+      else if (sameWork && (this.rayCpuMs + nextGpuMs) * 1.25 < available && (this.tiles > 2 || this.scale < 1)) {
+        // Recover useful band sizes after contention without first waiting for
+        // hundreds of one-pixel draws. Predict actual physical band area; CPU
+        // submission overhead does not multiply when pixels merge into a band.
+        // Resolution increases keep a longer stability window.
+        const observations = this.tiles > 2 ? Math.max(24, Math.min(64, this.rows)) : 120;
         this.fastTiles += bands;
         if (this.fastTiles >= observations) {
           const previousRows = this.rows, previousScale = this.scale;
@@ -185,6 +192,9 @@ export function gpuTimer(gl) {
     get busy() { return pending.length >= 4 || pending.some(entry => entry.kind === 'ray'); },
     begin(kind, detail = {}) {
       if (!extension || active || pending.length >= 4 || (kind === 'ray' && pending.some(entry => entry.kind === 'ray'))) return false;
+      // Presentation runs before ray admission. Keep one query slot available
+      // so delayed paint measurements cannot consume every newly freed slot.
+      if (kind === 'paint' && pending.filter(entry => entry.kind === 'paint').length >= 3) return false;
       const query = gl.createQuery();
       if (!query) return false;
       active = { query, kind, ...detail };

@@ -162,7 +162,8 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       try {
         pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
         syncViewportSize();
-        for (let i = 0; i < (count || 1); i++) pt.renderSample();
+        if (cfg.scanline && count > 1 && count <= 4) pt.renderSample(count);
+        else for (let i = 0; i < (count || 1); i++) pt.renderSample();
         const tg = pt.target;
         if (tg && tg.texture && tg.texture.magFilter !== THREE.NearestFilter) {
           tg.texture.magFilter = THREE.NearestFilter;

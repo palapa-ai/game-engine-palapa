@@ -32,6 +32,22 @@ test('late animation frames back off ray work and reduce tile area', () => {
   assert.equal(budget.tiles, 64);
 });
 
+test('external 30 Hz cadence lets ray cooldown expire without bypassing GPU backpressure', () => {
+  const budget = new FrameBudget();
+  budget.begin(0);
+  budget.submitted();
+  budget.begin(1000 / 30);
+  assert.equal(budget.allows(1000 / 30 + 1), false);
+  budget.begin(2000 / 30);
+  assert.equal(budget.allows(2000 / 30 + 1), false);
+  budget.begin(100);
+  assert.equal(budget.allows(101, true), false, 'an unfinished GPU query still blocks tracing');
+  assert.equal(budget.allows(101), true, 'slow callbacks alone cannot renew an idle cooldown');
+  budget.submitted();
+  budget.begin(4000 / 30);
+  assert.equal(budget.allows(4000 / 30 + 1), false, 'a slow traced frame still triggers backoff');
+});
+
 test('GPU timings adapt tiles without waiting for CPU frame overruns', () => {
   const budget = new FrameBudget({ tiles: 16, maxTiles: 64 });
   budget.ray(null, 12, 16);
@@ -119,14 +135,44 @@ test('unsupported and disjoint GPU clocks safely release or avoid queries', () =
   assert.equal(gl.deleted.length, 2);
 });
 
-test('GPU measurement backlog is bounded and prevents further ray submissions', () => {
+test('GPU measurement backlog reserves a ray slot while keeping all queries bounded', () => {
   const gl = context(), timer = gpuTimer(gl);
   for (let index = 0; index < 4; index++) { timer.begin('paint'); timer.end(); }
+  assert.equal(gl.queries.length, 3);
+  assert.equal(timer.busy, false);
+  assert.equal(timer.begin('ray'), true);
+  timer.end();
   assert.equal(timer.busy, true);
   assert.equal(timer.begin('ray'), false);
+  assert.equal(timer.begin('paint'), false);
   assert.equal(gl.queries.length, 4);
   timer.dispose();
   assert.equal(gl.deleted.length, 4);
+});
+
+test('paint-first frames with delayed queries cannot starve measured ray work', () => {
+  const gl = context(), timer = gpuTimer(gl), budget = new FrameBudget();
+  for (let frame = 0; frame < 3; frame++) {
+    timer.begin('paint'); timer.end();
+  }
+  for (let frame = 0; frame < 10; frame++) {
+    // One completed paint frees a slot each frame, before presentation takes
+    // its usual first turn. The reserved fourth slot must remain available.
+    const paint = gl.queries.find(query => !gl.deleted.includes(query));
+    paint.available = true;
+    timer.poll();
+    timer.begin('paint'); timer.end();
+    budget.begin(frame * 1000 / 60);
+    assert.equal(budget.batch(frame * 1000 / 60 + 1, timer.busy), 1);
+    assert.equal(timer.begin('ray'), true);
+    timer.end();
+    assert.equal(timer.busy, true);
+    assert.equal(timer.begin('ray'), false);
+    assert.ok(gl.queries.length - gl.deleted.length <= 4);
+    gl.queries.at(-1).available = true;
+    timer.poll();
+  }
+  timer.dispose();
 });
 
 
@@ -359,14 +405,32 @@ test('shrinking never creates empty bands when requested divisions already excee
   assert.equal(budget.scale, 0.125);
 });
 
-test('actual band timing and completed pixel rows allow recovery without waiting on nonexistent tiles', () => {
+test('recovery from one-pixel bands uses a bounded measured stability window', () => {
   const budget = new FrameBudget({ tiles: 32, maxTiles: 32 });
   budget.setViewportHeight(1152);
   budget.scale = 0.125;
-  for (let i = 0; i < 144; i++) budget.ray(0.1, 0.1, 32, 0.125, 1, budget.measurementEpoch, 144);
-  assert.equal(budget.tiles, 16, '144 useful bands are a full sample at this resolution');
+  for (let i = 0; i < 63; i++) budget.ray(0.1, 0.1, 32, 0.125, 1, budget.measurementEpoch, 144);
+  assert.equal(budget.tiles, 32, 'a brief quiet period retains the conservative partition');
+  budget.ray(0.1, 0.1, 32, 0.125, 1, budget.measurementEpoch, 144);
+  assert.equal(budget.tiles, 16, '64 useful bands establish recovery without an entire slow sample');
   assert.equal(budget.rows, 144);
   assert.ok(budget.rayGpuMs < 0.2, 'halving divisions with the same effective rows must not quadruple the cost');
+});
+
+test('coarsening estimates actual merged pixel area without multiplying CPU submission overhead', () => {
+  const budget = new FrameBudget({ tiles: 32, maxTiles: 32 });
+  budget.setViewportHeight(1154);
+  budget.scale = 0.5;
+  budget.paint(1.79);
+  assert.equal(budget.rows, 577);
+  for (let i = 0; i < 64; i++) budget.ray(0.9, 1.65, 32, 0.5, 1, budget.measurementEpoch, 577);
+  assert.equal(budget.tiles, 16, 'the measured 577-to-256 partition fits the frame budget');
+  assert.equal(budget.rows, 256);
+  assert.ok(Math.abs(budget.rayCpuMs - 0.9) < 1e-12);
+  assert.ok(budget.rayGpuMs > 3.7 && budget.rayGpuMs < 3.8);
+  for (let i = 0; i < 128; i++) budget.ray(0.9, 3.72, 16, 0.5, 1, budget.measurementEpoch, 256);
+  assert.equal(budget.tiles, 16, 'the next larger partition would exceed the remaining frame budget');
+  assert.equal(budget.scale, 0.5);
 });
 
 test('changing viewport height invalidates old queries and measured batching readiness', () => {
