@@ -53,7 +53,7 @@ export function createCapacity(canvas, options) {
     const bounds = canvas.getBoundingClientRect();
     const viewport = host.renderer.domElement.getBoundingClientRect();
     const x = bounds.left + bounds.width / 2 - viewport.left - viewport.width / 2;
-    const y = -(bounds.top + scrollY + bounds.height / 2), z = options.depth ?? 20;
+    const y = viewport.top - bounds.top - bounds.height / 2, z = options.depth ?? 20;
     const scale = height / localHeight;
     const changed = scene.position.x !== x || scene.position.y !== y || scene.position.z !== z || scene.scale.x !== scale;
     scene.position.set(x, y, z);

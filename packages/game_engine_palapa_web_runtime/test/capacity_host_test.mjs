@@ -14,8 +14,10 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
     else delete globalThis[name];
   }));
   const bounds = { left: 80, top: 300, width: 640, height: 700 };
+  const hostBounds = { left: 0, top: -100, width: 800, height: 800 };
   class Element extends EventTarget {
     style = {};
+    capturedPointer = null;
     setAttribute(name, value) { this[name] = value; }
     getBoundingClientRect() { return bounds; }
     getContext(kind) {
@@ -26,7 +28,9 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
         getImageData: () => ({ data: new Uint8Array(256 * 256 * 4) }),
       };
     }
-    hasPointerCapture() { return false; }
+    setPointerCapture(id) { this.capturedPointer = id; }
+    hasPointerCapture(id) { return this.capturedPointer === id; }
+    releasePointerCapture() { this.capturedPointer = null; }
   }
   const media = Object.assign(new EventTarget(), { matches: false });
   install('scrollY', 100);
@@ -51,7 +55,7 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
     camera: new THREE.OrthographicCamera(-400, 400, 0, -800, 0.1, 10000),
     renderer: {
       capabilities: { getMaxAnisotropy: () => 4 },
-      domElement: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 800 }) },
+      domElement: { getBoundingClientRect: () => hostBounds },
       getDrawingBufferSize: vector => vector.set(1600, 1600),
     },
     add(group, options = {}) {
@@ -66,6 +70,7 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
       else geometryChanges++;
     },
   };
+  host.camera.position.z = 2000;
   let ready, failed;
   const loaded = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
   const anchor = new Element();
@@ -108,6 +113,39 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
   assert.notEqual(globe.rotation.y, globeRotation);
   assert.ok(dynamicChanges > 0);
 
+  await t.test('scrolling during a captured globe drag preserves its position within the shared canvas', () => {
+    host.camera.updateMatrixWorld();
+    globe.updateWorldMatrix(true, true);
+    const center = globe.getWorldPosition(new THREE.Vector3()).project(host.camera);
+    const x = hostBounds.left + (center.x + 1) * hostBounds.width / 2;
+    const y = hostBounds.top + (1 - center.y) * hostBounds.height / 2;
+    const pointerEvent = (type, clientX, timeStamp) => {
+      const event = new Event(type, { cancelable: true });
+      Object.defineProperties(event, Object.fromEntries(Object.entries({
+        pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0,
+        clientX, clientY: y, timeStamp,
+      }).map(([name, value]) => [name, { value }])));
+      anchor.dispatchEvent(event);
+    };
+    const position = root.position.clone();
+    pointerEvent('pointerdown', x, now);
+    assert.equal(anchor.hasPointerCapture(1), true, 'the pointer must actually hit and hold the globe');
+    pointerEvent('pointermove', x + 20, now + 16);
+    const rotation = globe.rotation.y;
+
+    bounds.top -= 48;
+    hostBounds.top -= 48;
+    pointerEvent('pointermove', x + 40, now + 32);
+    assert.ok(root.position.equals(position), 'host and anchor scroll together even before window scroll metrics catch up');
+    assert.notEqual(globe.rotation.y, rotation, 'dragging continues to rotate the globe');
+    globalThis.scrollY += 48;
+    pointerEvent('pointermove', x + 60, now + 48);
+    assert.ok(root.position.equals(position), 'window scroll updates must not move the globe a second time');
+    assert.equal(geometryChanges, initialChanges, 'a drag and scroll must not rebuild the static table');
+    pointerEvent('pointerup', x + 60, now + 64);
+    assert.equal(anchor.hasPointerCapture(1), false);
+  });
+
   const meridian = root.getObjectByName('antique-globe-meridian');
   for (const style of ['black and white', 'antique', 'photorealistic']) {
     anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'g' }));
@@ -147,6 +185,7 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
   control.resize(640, 700, 2, true, 12);
   assert.equal(geometryChanges, initialChanges + 5);
   bounds.top -= 40;
+  hostBounds.top -= 40;
   globalThis.scrollY += 40;
   control.resize(640, 700, 2, true, 12);
   assert.equal(geometryChanges, initialChanges + 5, 'scrolling does not change document-space geometry');
