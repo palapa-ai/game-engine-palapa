@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { downloadAssets, formatRemaining } from '../runtime/hero/loading.mjs';
+import { downloadAssets, downloadDuration, formatRemaining } from '../runtime/hero/loading.mjs';
 
 const response = chunks => new Response(new ReadableStream({
   start(controller) {
@@ -69,4 +69,28 @@ test('invalid manifests fail before fetching and small remaining amounts never r
   assert.equal(formatRemaining(0), '0 MB');
   assert.equal(formatRemaining(1), '0.1 MB');
   assert.equal(formatRemaining(1700000), '1.7 MB');
+});
+
+test('download time counts parallel requests once and excludes setup gaps', () => {
+  const entries = [
+    { entryType: 'resource', fetchStart: 300, responseEnd: 1000 },
+    { entryType: 'navigation', fetchStart: 0, responseEnd: 500 },
+    { entryType: 'resource', fetchStart: 600, responseEnd: 800 },
+    { entryType: 'resource', fetchStart: 1500, responseEnd: 4000 },
+    { entryType: 'measure', fetchStart: 0, responseEnd: 10000 },
+  ];
+  assert.equal(downloadDuration(entries), 3500);
+  assert.equal(downloadDuration(entries, 2000), 1500);
+  assert.equal(entries[0].fetchStart, 300, 'timing entries remain unchanged');
+});
+
+test('download time handles cache reads, missing timing fields, and unfinished responses', () => {
+  assert.equal(downloadDuration([]), 0);
+  assert.equal(downloadDuration([
+    { entryType: 'resource', fetchStart: 50, responseEnd: 51, transferSize: 0 },
+    { entryType: 'resource', fetchStart: 55, responseEnd: 0 },
+    { entryType: 'resource' },
+    { entryType: 'resource', fetchStart: NaN, responseEnd: 90 },
+    { entryType: 'resource', fetchStart: 200, responseEnd: 300 },
+  ], 100), 1);
 });

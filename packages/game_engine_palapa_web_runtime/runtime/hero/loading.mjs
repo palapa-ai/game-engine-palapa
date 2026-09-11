@@ -53,3 +53,17 @@ export function formatRemaining(bytes) {
   if (bytes === 0) return '0 MB';
   return `${(Math.ceil(bytes / 100000) / 10).toFixed(1)} MB`;
 }
+
+export function downloadDuration(entries, until = Infinity) {
+  const intervals = entries
+    .filter(entry => ['navigation', 'resource'].includes(entry.entryType))
+    .map(entry => [entry.fetchStart, Math.min(entry.responseEnd, until)])
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start)
+    .sort(([a], [b]) => a - b);
+  let duration = 0, previousEnd = 0;
+  for (const [start, end] of intervals) {
+    duration += Math.max(0, end - Math.max(start, previousEnd));
+    previousEnd = Math.max(previousEnd, end);
+  }
+  return duration;
+}

@@ -25,7 +25,7 @@ export function createDiagnostics(element, source, { traces = [] } = {}) {
     <div id="traces"></div><button type="button" data-setting="samples"></button>
     <button type="button" data-setting="bounces"></button>
     <button type="button" data-setting="resolution"></button>
-    <button type="button" id="reset">Reset</button><hr><output id="fps"></output><output id="page">Loading page…</output><output id="rays"></output><output id="rate"></output><output id="spp"></output><output id="trace" hidden></output>
+    <button type="button" id="reset">Reset</button><hr><output id="fps"></output><output id="download" hidden></output><output id="page">Loading page…</output><output id="rays"></output><output id="rate"></output><output id="spp"></output><output id="trace" hidden></output>
   </section></details>`;
   const traceHandles = traces.map(({ label, settings, source: traceSource }) => {
     const control = document.createElement('label');
@@ -63,8 +63,14 @@ export function createDiagnostics(element, source, { traces = [] } = {}) {
   const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
   root.getElementById('rays').title = 'Primary camera rays submitted since this page opened, across both tracing worlds and scene rebuilds. Bounce and shadow rays are not counted.';
   root.getElementById('rate').title = 'Primary camera rays submitted per second of elapsed time, updated every second.';
+  root.getElementById('download').title = 'Time spent fetching the page and startup resources before the page reveal, including request latency and cache reads. Simultaneous requests count once; gaps spent setting up and rendering are excluded.';
   const seconds = milliseconds => `${(milliseconds / 1000).toFixed(2)}s`;
   const read = () => {
+    const download = document.body.dataset.downloadDurationMs;
+    if (download !== undefined) {
+      root.getElementById('download').hidden = false;
+      root.getElementById('download').textContent = `${(Number(download) / 1000).toFixed(1)} sec downloading`;
+    }
     const pageTime = Number(document.body.dataset.pageVisibleAt);
     if (pageTime) root.getElementById('page').textContent = `${seconds(pageTime)} page load`;
     const enabled = traces.length ? traces.filter(trace => trace.settings.value.enabled)
