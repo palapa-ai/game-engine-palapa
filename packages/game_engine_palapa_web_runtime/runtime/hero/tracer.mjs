@@ -5,6 +5,7 @@ import * as THREE from "./vendor/three.module.min.js";
 
 let modP = null;
 const mod = () => modP || (modP = import("./vendor/three-gpu-pathtracer.module.js"));
+export const preloadTracer = () => mod();
 
 // Building the BVH was the last synchronous stall in attaching the tracer, so it
 // runs in a worker and the page only deserialises the result.
@@ -86,7 +87,8 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   pt.lowResScale = 0.25;
   pt.fadeDuration = 900;
   // One renderSample() traces one tile, so more tiles = less work per frame.
-  pt.tiles.set(cfg.tiles, cfg.tiles);
+  const tileShape = divisions => cfg.scanline ? [1, divisions ** 2] : [divisions, divisions];
+  pt.tiles.set(...tileShape(cfg.tiles));
   pt.synchronizeRenderSize = true;
   pt.minSamples = 1;
   pt.filterGlossyFactor = 0.5;
@@ -143,8 +145,9 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       pt.reset();
     },
     setTiles(divisions) {
-      if (pt.tiles.x === divisions && pt.tiles.y === divisions) return;
-      pt.tiles.set(divisions, divisions);
+      const [columns, rows] = tileShape(divisions);
+      if (pt.tiles.x === columns && pt.tiles.y === rows) return;
+      pt.tiles.set(columns, rows);
       // The vendor captures tile dimensions for a whole sample. Restarting
       // its task applies a smaller tile immediately after an overrun.
       pt.reset();
@@ -173,6 +176,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       this.dead = true;
       cleanup();
     },
+    get rows() { return pt.tiles.y; },
     get scale() { return adaptiveScale; },
     get target() { return pt.target; },
     get compiling() { return !!pt.isCompiling; },

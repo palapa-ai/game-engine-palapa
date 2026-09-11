@@ -54,7 +54,7 @@ export function createDiagnostics(element, source) {
     root.getElementById('trace').textContent = source.state === 'fallback' ? 'Ray tracing unavailable'
       : start ? `${seconds((end || performance.now()) - start)} ray tracing time` : 'Ray tracing queued';
     root.getElementById('trace').title = 'Elapsed time since the current scene rebuild began, including setup. Resets when the scene changes; stops at the sample target.';
-    root.getElementById('spp').textContent = `${Math.floor(source.samples)} spp`;
+    root.getElementById('spp').textContent = `${source.samples > 0 && source.samples < 1 ? source.samples.toFixed(2) : Math.floor(source.samples)} spp`;
     root.getElementById('spp').title = 'Samples per pixel across the shared scene';
     if (start && end) element.dataset.traceDurationMs = String(end - start);
   };

@@ -1,5 +1,6 @@
 import * as THREE from './hero/vendor/three.module.min.js';
-import { attachTracer } from './hero/tracer.mjs';
+import { attachTracer, preloadTracer } from './hero/tracer.mjs';
+import { scanlineCoverage } from './hero/scanline.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
 import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
@@ -29,6 +30,7 @@ function softEnvironment(renderer) {
 }
 
 export function createPageScene(canvas, options = {}) {
+  void preloadTracer().catch(() => {});
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0x000000, 0);
   renderer.localClippingEnabled = true;
@@ -47,17 +49,25 @@ export function createPageScene(canvas, options = {}) {
     depthTexture: new THREE.DepthTexture(1, 1),
   });
   const staticMaterial = new THREE.ShaderMaterial({
-    uniforms: { colorMap: { value: staticTarget.texture }, depthMap: { value: staticTarget.depthTexture } },
+    uniforms: {
+      colorMap: { value: staticTarget.texture }, depthMap: { value: staticTarget.depthTexture },
+      traceMap: { value: staticTarget.texture }, traceCoverage: { value: 0 },
+    },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
     fragmentShader: `uniform sampler2D colorMap;
       uniform sampler2D depthMap;
+      uniform sampler2D traceMap;
+      uniform float traceCoverage;
       varying vec2 vUv;
       void main() {
-        gl_FragColor = texture2D(colorMap, vUv);
+        gl_FragColor = traceCoverage > 0. && vUv.y >= 1. - traceCoverage
+          ? texture2D(traceMap, vUv) : texture2D(colorMap, vUv);
         gl_FragDepth = texture2D(depthMap, vUv).r;
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
+        #include <premultiplied_alpha_fragment>
       }`,
+    premultipliedAlpha: renderer.getContextAttributes().premultipliedAlpha,
     blending: THREE.NoBlending, depthFunc: THREE.AlwaysDepth, depthTest: true, depthWrite: true,
   });
   const staticQuad = new FullScreenQuad(staticMaterial);
@@ -98,7 +108,8 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceBounces = String(renderSettings.value.bounces);
     canvas.dataset.sceneCount = '1';
     canvas.dataset.frameBudgetMs = String(budget.milliseconds);
-    canvas.dataset.traceTiles = `${budget.tiles}×${budget.tiles}`;
+    canvas.dataset.traceTiles = `1×${budget.tiles ** 2}`;
+    canvas.dataset.traceScanline = String(staticMaterial.uniforms.traceCoverage.value);
     canvas.dataset.traceGpuTiming = timer.supported ? 'available' : 'unavailable';
     canvas.dataset.traceSkippedFrames = String(budget.skipped);
     canvas.dataset.paintGpuMs = budget.paintGpuMs.toFixed(2);
@@ -136,12 +147,13 @@ export function createPageScene(canvas, options = {}) {
     phase = 'loading';
     canvas.dataset.traceStartedAt = String(performance.now());
     delete canvas.dataset.traceFinishedAt;
+    delete canvas.dataset.traceFirstSampleAt;
     status();
     try {
       const quality = renderSettings.value;
       const next = await attachTracer(renderer, tracingScene, camera, {
         bounces: quality.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles,
-        dynamicLowRes: false, renderDelay: 0,
+        dynamicLowRes: false, renderDelay: 0, scanline: true,
         environmentTop: 0xd8d8d8, environmentBottom: 0xb8b8b8,
       });
       if (disposed || version !== revision) next.dispose();
@@ -172,15 +184,13 @@ export function createPageScene(canvas, options = {}) {
     renderer.setScissorTest(false);
     renderer.setRenderTarget(null);
     renderer.autoClear = true;
-    const traced = tracer && !geometryDirty && tracer.samples >= 1;
-    if (traced) tracer.present();
-    else renderer.clear();
+    const traced = tracer && !geometryDirty && tracer.samples > 0;
+    staticMaterial.uniforms.traceMap.value = traced ? tracer.target.texture : staticTarget.texture;
+    staticMaterial.uniforms.traceCoverage.value = traced
+      ? scanlineCoverage(tracer.samples, tracer.target.height, tracer.rows) : 0;
+    renderer.clear();
     renderer.autoClear = false;
-    // Copy cached static depth alongside its preview, or behind the traced
-    // color. Moving objects still occlude correctly without redrawing the wall.
-    staticMaterial.colorWrite = !traced;
     staticQuad.render(renderer);
-    staticMaterial.colorWrite = true;
   };
   const moving = () => {
     if (!dynamicRoots.some(group => group.visible)) return;
@@ -227,6 +237,7 @@ export function createPageScene(canvas, options = {}) {
           try { sampled = tracer.sample(1, { present: false }); }
           finally { timer.end(); }
           if (tracer.samples > previousSamples) {
+            canvas.dataset.traceFirstSampleAt ||= String(performance.now());
             budget.submitted();
             budget.ray(performance.now() - started);
           }
