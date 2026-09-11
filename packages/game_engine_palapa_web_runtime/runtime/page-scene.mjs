@@ -5,6 +5,7 @@ import { ProgressiveTrace } from './hero/progressive-trace.mjs';
 import { ProgressiveResolution } from './hero/progressive-resolution.mjs';
 import { TraceReveal, TRACE_REVEAL_MS } from './hero/trace-reveal.mjs';
 import { traceSampleGoal, traceResolutionConfidence, canPreserveTrace } from './hero/trace-confidence.mjs';
+import { TraceHistory } from './hero/trace-history.mjs';
 import { BackdropCache } from './hero/backdrop-cache.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
@@ -131,7 +132,7 @@ export function createPageScene(canvas, options = {}) {
     blending: THREE.NoBlending, depthTest: false, depthWrite: false,
   });
   const historyQuad = new FullScreenQuad(historyMaterial);
-  let historyIndex = -1;
+  const traceHistory = new TraceHistory();
   let staticDirty = true;
   const callbacks = new Set();
   let width = 0, height = 0, ratio = 1;
@@ -236,7 +237,7 @@ export function createPageScene(canvas, options = {}) {
     geometryDirty = false;
     const version = revision;
     tracer?.dispose(); tracer = null;
-    historyIndex = -1;
+    traceHistory.reset();
     traceStage = 'foreground';
     resetReveal();
     qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
@@ -291,9 +292,9 @@ export function createPageScene(canvas, options = {}) {
       staticDirty = false;
     } finally { restore(); renderer.setRenderTarget(null); }
   };
-  const composite = (time = performance.now()) => {
+  const composite = (time = performance.now(), sourceIndex = traceHistory.sourceIndex) => {
     const traced = tracer && !geometryDirty && tracer.samples > 0;
-    staticMaterial.uniforms.colorMap.value = historyIndex < 0 ? staticTarget.texture : history[historyIndex].texture;
+    staticMaterial.uniforms.colorMap.value = sourceIndex < 0 ? staticTarget.texture : history[sourceIndex].texture;
     staticMaterial.uniforms.traceMap.value = traced ? tracer.target.texture : staticTarget.texture;
     staticMaterial.uniforms.traceCoverage.value = traced
       ? scanlineCoverage(tracer.samples, tracer.target.height, tracer.rows) : 0;
@@ -309,6 +310,18 @@ export function createPageScene(canvas, options = {}) {
     staticMaterial.uniforms.traceResolutionConfidence.value = traced ? traceResolutionConfidence(tracer.target, area) : 0;
     staticMaterial.uniforms.traceForeground.value = traceStage === 'foreground';
   };
+  const captureHistory = (time, transient = false) => {
+    cacheStatic();
+    traceHistory.capture((targetIndex, sourceIndex) => {
+      composite(time, sourceIndex);
+      history[targetIndex].setSize(canvas.width, canvas.height);
+      renderer.setScissorTest(false);
+      renderer.setRenderTarget(history[targetIndex]);
+      renderer.autoClear = true;
+      try { historyQuad.render(renderer); }
+      finally { renderer.setRenderTarget(null); }
+    }, { transient });
+  };
   const preserve = (time = performance.now()) => {
     if (!tracer || !canPreserveTrace({
       samples: tracer.samples,
@@ -317,16 +330,7 @@ export function createPageScene(canvas, options = {}) {
       qualitySettled: qualityPass.settled && tracer.bounces === qualityPass.target,
       revealSettled: reveal.settled(time),
     })) return;
-    cacheStatic();
-    composite(time);
-    const next = (historyIndex + 1) % history.length;
-    history[next].setSize(canvas.width, canvas.height);
-    renderer.setScissorTest(false);
-    renderer.setRenderTarget(history[next]);
-    renderer.autoClear = true;
-    historyQuad.render(renderer);
-    renderer.setRenderTarget(null);
-    historyIndex = next;
+    captureHistory(time);
   };
   const present = (visible, time) => {
     cacheStatic();
@@ -372,6 +376,7 @@ export function createPageScene(canvas, options = {}) {
       const visible = viewport();
       if (tracer && visible.width > 0 && visible.height > 0 && !sameViewport(tracer.viewport, visible)) {
         preserve(time);
+        traceHistory.clearTransient();
         budget.maxTiles = 8;
         budget.resetQuality();
         budget.scale = 0.5;
@@ -428,7 +433,7 @@ export function createPageScene(canvas, options = {}) {
           dirty = true;
         } else if (stageComplete && reveal.settled(time)) {
           if (traceStage === 'foreground') {
-            preserve(time);
+            captureHistory(time, true);
             traceStage = 'background';
             canvas.dataset.traceForegroundFinishedAt = String(performance.now());
             tracer.setForegroundOnly(false);
@@ -558,6 +563,7 @@ export function createPageScene(canvas, options = {}) {
     invalidate, resize,
     resetTracingQuality() {
       preserve();
+      traceHistory.clearTransient();
       qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
       resolutionPass = new ProgressiveResolution();
       budget.maxTiles = 8;
