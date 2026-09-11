@@ -16,17 +16,18 @@ export function createFrameCounter(element) {
   return { dispose() { cancelAnimationFrame(frame); } };
 }
 
-export function createDiagnostics(element, source, { traces = [] } = {}) {
+export function createDiagnostics(element, source, { traces = [], controls = [] } = {}) {
   const root = element.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     :host{position:fixed;right:12px;top:12px;z-index:20;width:216px;max-height:calc(100dvh - 24px);overflow:auto;color:#fff;background:#151515ed;border:1px solid #444;font:12px/1.5 ui-monospace,monospace;border-radius:6px;box-shadow:0 4px 24px #0006}
     *{box-sizing:border-box}label{display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer}input{accent-color:#66f5f5}summary{cursor:pointer;padding:12px;font-weight:600}section{padding:0 12px 12px}button{display:block;width:100%;margin-bottom:10px;font:inherit;color:inherit;background:#282828;border:1px solid #555;border-radius:3px;padding:6px;cursor:pointer}button:focus-visible{outline:2px solid #66f5f5}output{display:block;font-variant-numeric:tabular-nums;white-space:pre-line}output[hidden]{display:none}hr{border:0;border-top:1px solid #444;margin:12px 0}
   </style><details open><summary>Debug</summary><section>
-    <div id="traces"></div><button type="button" data-setting="samples"></button>
+    <div id="traces"></div><div id="controls"></div><button type="button" data-setting="samples"></button>
     <button type="button" data-setting="bounces"></button>
     <button type="button" data-setting="resolution"></button>
     <button type="button" id="reset">Reset</button><hr><output id="fps"></output><output id="download" hidden></output><output id="page">Loading page…</output><output id="rays"></output><output id="rate"></output><output id="spp"></output><output id="trace" hidden></output>
   </section></details>`;
+  root.getElementById('controls').append(...controls);
   const traceHandles = traces.map(({ label, settings, source: traceSource }) => {
     const control = document.createElement('label');
     const input = document.createElement('input');
