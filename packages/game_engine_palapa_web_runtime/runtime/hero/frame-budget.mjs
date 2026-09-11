@@ -1,8 +1,8 @@
 const smooth = (previous, next) => Math.max(next, previous * 0.8 + next * 0.2);
 
 // A GPU draw cannot be preempted. Reserve presentation time and use asynchronous
-// measurements to choose small work. Alpha accumulation also blends the entire
-// trace target on every tile, so tiles alone cannot bound that cost.
+// measurements to choose small work. Each sample copies its previous image once;
+// later bands only trace and blend their own pixels.
 export class FrameBudget {
   constructor({ milliseconds = 16, reserve = 2, tiles = 16, maxTiles = 16, minScale = 1 / 8 } = {}) {
     this.milliseconds = milliseconds;
@@ -25,6 +25,8 @@ export class FrameBudget {
     this.lastSubmission = -Infinity;
     this.probes = 0;
     this.lastProbe = -Infinity;
+    this.measurementEpoch = 0;
+    this.resetBatchMeasurements();
   }
   begin(timestamp) {
     const interval = this.previous === null ? 0 : timestamp - this.previous;
@@ -38,7 +40,17 @@ export class FrameBudget {
     this.started = timestamp;
     this.traced = false;
   }
-  resetCadence() { this.previous = null; this.traced = false; }
+  resetBatchMeasurements() {
+    this.measurementEpoch++;
+    this.batchGpuQueries = 0;
+    this.batchGpuWork = null;
+    this.batchCpuWork = null;
+  }
+  resetCadence() {
+    this.previous = null;
+    this.traced = false;
+    this.resetBatchMeasurements();
+  }
   resetQuality() {
     this.tiles = this.initialTiles;
     this.scale = 1;
@@ -55,11 +67,13 @@ export class FrameBudget {
     if (this.tiles < this.maxTiles) {
       this.tiles = Math.min(this.maxTiles, this.tiles * 2);
       this.rayGpuMs = Math.max(0.25, this.rayGpuMs / 4);
+      this.resetBatchMeasurements();
       return true;
     }
     if (this.scale > this.minScale) {
       this.scale = Math.max(this.minScale, this.scale / 2);
       this.rayGpuMs = Math.max(0.25, this.rayGpuMs / 4);
+      this.resetBatchMeasurements();
       return true;
     }
     return false;
@@ -67,12 +81,22 @@ export class FrameBudget {
   paint(gpuMs) {
     if (Number.isFinite(gpuMs) && gpuMs >= 0) this.paintGpuMs = smooth(this.paintGpuMs, gpuMs);
   }
-  ray(cpuMs, gpuMs = null, tiles = this.tiles, scale = this.scale) {
-    // Submission overhead is not proportional to a tile's pixel count.
-    if (Number.isFinite(cpuMs)) this.rayCpuMs = smooth(this.rayCpuMs, cpuMs);
-    if (Number.isFinite(gpuMs)) {
-      const sameWork = tiles === this.tiles && scale === this.scale;
-      this.rayGpuMs = smooth(this.rayGpuMs, gpuMs * (tiles / this.tiles) ** 2 * (this.scale / scale) ** 2);
+  ray(cpuMs, gpuMs = null, tiles = this.tiles, scale = this.scale, bands = 1, epoch = this.measurementEpoch) {
+    if (epoch !== this.measurementEpoch || !Number.isInteger(bands) || bands < 1) return;
+    const sameWork = tiles === this.tiles && scale === this.scale;
+    // CPU and GPU measurements cover the complete submitted batch. Keep estimates
+    // per band, including CPU overhead, before extrapolating to other tile sizes.
+    if (Number.isFinite(cpuMs) && cpuMs >= 0) {
+      this.rayCpuMs = smooth(this.rayCpuMs, cpuMs / bands);
+      if (sameWork) this.batchCpuWork = { tiles, scale };
+    }
+    if (Number.isFinite(gpuMs) && gpuMs >= 0) {
+      if (sameWork) {
+        if (this.batchGpuWork?.tiles !== tiles || this.batchGpuWork?.scale !== scale) this.batchGpuQueries = 0;
+        this.batchGpuWork = { tiles, scale };
+        this.batchGpuQueries++;
+      }
+      this.rayGpuMs = smooth(this.rayGpuMs, gpuMs / bands * (tiles / this.tiles) ** 2 * (this.scale / scale) ** 2);
       const available = this.milliseconds - this.paintGpuMs - this.reserve;
       const predicted = (this.rayCpuMs + this.rayGpuMs) * 1.25;
       if (predicted > available) this.shrink();
@@ -80,16 +104,26 @@ export class FrameBudget {
         // Observe at least a whole sample before changing tiling, and a longer
         // stable window before increasing target resolution and restarting it.
         const observations = this.tiles > 2 ? Math.max(24, this.tiles ** 2) : 120;
-        if (++this.fastTiles >= observations) {
+        this.fastTiles += bands;
+        if (this.fastTiles >= observations) {
           if (this.tiles > 2) this.tiles /= 2;
           else this.scale = Math.min(1, this.scale * 2);
           this.rayGpuMs *= 4;
           this.fastTiles = 0;
+          this.resetBatchMeasurements();
         }
       } else this.fastTiles = 0;
     }
   }
+  batch(now, pending = false) {
+    if (!this.allows(now, pending)) return 0;
+    const current = work => work?.tiles === this.tiles && work?.scale === this.scale;
+    if (this.probeAllowed || this.batchGpuQueries < 2 || !current(this.batchGpuWork) || !current(this.batchCpuWork)) return 1;
+    const perBand = Math.max(0.25, (this.rayCpuMs + this.rayGpuMs) * 1.25);
+    return Math.max(1, Math.min(4, Math.floor(this.remaining / perBand)));
+  }
   allows(now, pending = false) {
+    this.probeAllowed = false;
     this.remaining = Math.max(0, this.milliseconds - (now - this.started) - this.paintGpuMs - this.reserve);
     if (pending || this.cooldown) { this.skipped++; return false; }
     if (this.remaining >= (this.rayCpuMs + this.rayGpuMs) * 1.25) {
@@ -104,6 +138,7 @@ export class FrameBudget {
       if (!this.shrink() && now - Math.max(this.lastSubmission, this.lastProbe) >= 1000) {
         this.probes++;
         this.lastProbe = now;
+        this.probeAllowed = true;
         return true;
       }
     }
@@ -131,16 +166,17 @@ export function gpuTimer(gl) {
     get supported() { return !!extension; },
     get busy() { return pending.length >= 4 || pending.some(entry => entry.kind === 'ray'); },
     begin(kind, detail = {}) {
-      if (!extension || active || pending.length >= 4) return false;
+      if (!extension || active || pending.length >= 4 || (kind === 'ray' && pending.some(entry => entry.kind === 'ray'))) return false;
       const query = gl.createQuery();
       if (!query) return false;
       active = { query, kind, ...detail };
       gl.beginQuery(extension.TIME_ELAPSED_EXT, query);
       return true;
     },
-    end() {
+    end(detail = {}) {
       if (!active) return;
       gl.endQuery(extension.TIME_ELAPSED_EXT);
+      Object.assign(active, detail);
       pending.push(active);
       active = null;
     },

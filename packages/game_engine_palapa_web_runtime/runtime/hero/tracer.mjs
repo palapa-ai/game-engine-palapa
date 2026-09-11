@@ -2,6 +2,7 @@
 // replaced by a relative import and a settings object. The tracer's own
 // configuration is unchanged, so the image it converges to is the archive's.
 import * as THREE from "./vendor/three.module.min.js";
+import { prepareTraceBackdrop } from "./trace-backdrop.mjs";
 import { normalizeTraceViewport, sameTraceViewport, traceViewportSize, applyTraceViewport } from "./trace-viewport.mjs";
 
 let modP = null;
@@ -77,6 +78,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   };
   syncCamera();
 
+  const backdrop = prepareTraceBackdrop(scene, cfg.foregroundOnly);
   const pt = new WebGLPathTracer(renderer);
   // Cap the render target at the device's max texture size — oversized float
   // targets are silently rejected on iOS (or OOM the tab).
@@ -120,6 +122,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
     try { bvh?.worker.terminate(); } catch (_) { /* worker may already be gone */ }
     if (scene.environment === env) scene.environment = null;
     env.dispose();
+    backdrop.dispose();
   };
   try { bvh = await bvhWorker(); pt.setBVHWorker(bvh); } catch (e) { /* falls back to the main thread */ }
   const build = () => {
@@ -158,6 +161,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
         return false;
       } finally { pt.renderToCanvas = renderToCanvas; }
     },
+    reset() { if (!this.dead) pt.reset(); },
     setScale(scale) {
       const next = Math.min(1, Math.max(1 / 64, scale));
       if (adaptiveScale === next) return;
@@ -175,6 +179,11 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       syncCamera();
       pt.updateCamera();
       syncViewportSize();
+      return true;
+    },
+    setForegroundOnly(value) {
+      if (!backdrop.setForegroundOnly(value)) return false;
+      pt.updateMaterials();
       return true;
     },
     setBounces(bounces) {
@@ -214,6 +223,8 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       this.dead = true;
       cleanup();
     },
+    get foregroundOnly() { return backdrop.foregroundOnly; },
+    get hasBackdrop() { return backdrop.hasBackdrop; },
     get viewport() { return viewport; },
     get bounces() { return pt.bounces; },
     get rows() { return pt.tiles.y; },

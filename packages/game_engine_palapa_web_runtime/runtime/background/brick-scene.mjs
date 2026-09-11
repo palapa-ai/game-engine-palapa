@@ -34,7 +34,7 @@ export async function createBrickWall(host, assetUrl) {
   group.name = 'BrickWall';
   group.position.z = -500;
   let width = 0, height = 0, disposed = false;
-  host.add(group);
+  host.add(group, { role: 'backdrop' });
   return {
     group,
     resize(cssWidth, cssHeight) {

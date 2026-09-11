@@ -52,13 +52,17 @@ export function createDiagnostics(element, source) {
     const data = source.renderer.domElement.dataset;
     const start = Number(data.traceStartedAt), end = Number(data.traceFinishedAt);
     const active = Number(data.traceBounces), target = renderSettings.value.bounces;
+    const resolution = renderSettings.value.resolution * 100;
+    const currentResolution = resolution * Number(data.traceResolutionScale || 1);
+    root.querySelector('[data-setting="resolution"]').textContent = currentResolution < resolution
+      ? `${Number(currentResolution.toFixed(1))} → ${resolution}% resolution` : `${resolution}% resolution`;
     root.querySelector('[data-setting="bounces"]').textContent = active && active < target
       ? `${active} → ${target} bounces` : `${target} bounces`;
     root.getElementById('trace').textContent = source.state === 'fallback' ? 'Ray tracing unavailable'
       : start ? `${seconds((end || performance.now()) - start)} ray tracing time` : 'Ray tracing queued';
     root.getElementById('trace').title = 'Elapsed time since the current scene rebuild began, including setup. Resets when the scene changes; stops at the sample target.';
     root.getElementById('spp').textContent = `${source.samples > 0 && source.samples < 1 ? source.samples.toFixed(2) : Math.floor(source.samples)} spp`;
-    root.getElementById('spp').title = 'Samples per pixel across the shared scene';
+    root.getElementById('spp').title = 'Accumulated samples per pixel in the visible area at the current resolution.';
     if (start && end) element.dataset.traceDurationMs = String(end - start);
   };
   const timer = setInterval(read, 250);

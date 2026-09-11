@@ -214,3 +214,124 @@ test('explicit quality reset restores requested resolution while retaining measu
   budget.begin(0);
   assert.equal(budget.allows(1), false);
 });
+
+function measuredBudget(options = {}) {
+  const budget = new FrameBudget({ tiles: 2, maxTiles: 2, ...options });
+  budget.ray(0.1, 2);
+  budget.ray(0.1, 2);
+  return budget;
+}
+
+test('batching needs CPU measurements and two completed GPU queries at the current workload', () => {
+  const budget = new FrameBudget({ tiles: 2, maxTiles: 2 });
+  budget.begin(100);
+  assert.equal(budget.batch(100), 1, 'seeded estimates must not enable startup batching');
+  budget.ray(0.1, 2);
+  assert.equal(budget.batch(100), 1);
+  budget.ray(null, 2);
+  assert.equal(budget.batch(100), 4);
+  assert.equal(budget.batch(100, true), 0, 'pending GPU work always takes precedence');
+
+  const noGpuClock = new FrameBudget({ tiles: 2 });
+  noGpuClock.begin(100);
+  for (let i = 0; i < 20; i++) noGpuClock.ray(0.01);
+  assert.equal(noGpuClock.batch(100), 1, 'CPU submission time cannot stand in for GPU execution time');
+  const noCpuMeasurement = new FrameBudget({ tiles: 2 });
+  noCpuMeasurement.begin(100);
+  noCpuMeasurement.ray(null, 0.1); noCpuMeasurement.ray(null, 0.1);
+  assert.equal(noCpuMeasurement.batch(100), 1);
+});
+
+test('measured batches spend only the available paint-adjusted frame budget and cap at four bands', () => {
+  const budget = measuredBudget();
+  budget.begin(100);
+  assert.equal(budget.batch(100), 4);
+  budget.paint(6);
+  assert.equal(budget.batch(101), 2);
+  assert.equal(budget.batch(105), 1);
+  assert.equal(budget.batch(107), 0);
+  budget.cooldown = 1;
+  assert.equal(budget.batch(100), 0);
+});
+
+test('CPU and GPU batch totals are normalized per actually submitted band', () => {
+  const single = new FrameBudget({ tiles: 2, maxTiles: 2 });
+  const batched = new FrameBudget({ tiles: 2, maxTiles: 2 });
+  single.ray(0.2, 3, 2, 1, 1);
+  batched.ray(0.8, 12, 2, 1, 4);
+  assert.equal(batched.rayCpuMs, single.rayCpuMs);
+  assert.equal(batched.rayGpuMs, single.rayGpuMs);
+  assert.equal(batched.tiles, 2, 'a cheap four-band total must not be mistaken for one expensive band');
+  const measured = [batched.rayCpuMs, batched.rayGpuMs, batched.batchGpuQueries];
+  batched.ray(100, 100, 2, 1, 0);
+  assert.deepEqual([batched.rayCpuMs, batched.rayGpuMs, batched.batchGpuQueries], measured, 'zero submitted bands do not poison estimates');
+});
+
+test('resets reject old-epoch measurements and require fresh evidence before batching again', () => {
+  const budget = measuredBudget();
+  budget.begin(100);
+  const oldEpoch = budget.measurementEpoch;
+  const previousCost = [budget.rayCpuMs, budget.rayGpuMs];
+  budget.resetBatchMeasurements();
+  assert.ok(budget.measurementEpoch > oldEpoch);
+  budget.ray(100, 100, 2, 1, 1, oldEpoch);
+  assert.deepEqual([budget.rayCpuMs, budget.rayGpuMs], previousCost);
+  assert.equal(budget.batch(100), 1);
+  budget.ray(0.1, 2);
+  assert.equal(budget.batch(100), 1);
+  budget.ray(null, 2);
+  assert.equal(budget.batch(100), 4);
+  budget.resetCadence(); budget.begin(1000);
+  assert.equal(budget.batch(1000), 1, 'resuming after an idle period starts with one measured probe');
+  budget.resetQuality(); budget.begin(2000);
+  assert.equal(budget.batch(2000), 1);
+});
+
+test('tiling changes cannot reuse batching readiness from a different pixel workload', () => {
+  const budget = measuredBudget({ maxTiles: 8 });
+  budget.begin(100);
+  assert.equal(budget.batch(100), 4);
+  budget.shrink();
+  assert.equal(budget.tiles, 4);
+  assert.equal(budget.batch(100), 1);
+  budget.ray(0.1, 1, 2, 1);
+  budget.ray(0.1, 1, 2, 1);
+  assert.equal(budget.batch(100), 1, 'scaled old-tile timings cannot establish current-work readiness');
+  budget.ray(0.1, 0.5, 4, 1);
+  budget.ray(0.1, 0.5, 4, 1);
+  assert.equal(budget.batch(100), 4);
+});
+
+test('recovery probes stay one band even after batching was previously measured as safe', () => {
+  const budget = new FrameBudget({ tiles: 2, maxTiles: 2 });
+  budget.scale = budget.minScale;
+  budget.ray(0.1, 2); budget.ray(0.1, 2);
+  budget.begin(0);
+  assert.equal(budget.batch(0), 4);
+  budget.rayGpuMs = 50;
+  const batches = [];
+  for (let frame = 1; frame < 180; frame++) {
+    const time = frame * 1000 / 60;
+    budget.begin(time);
+    const count = budget.batch(time + 1);
+    if (count) { batches.push(count); budget.submitted(); }
+  }
+  assert.deepEqual(batches, [1, 1, 1]);
+});
+
+test('a ray query records its actual batch count and remains the only pending ray query', () => {
+  const gl = context(), timer = gpuTimer(gl);
+  assert.equal(timer.begin('ray', { tiles: 2, scale: 1, bands: 4, epoch: 7 }), true);
+  timer.end({ bands: 2 });
+  assert.equal(timer.begin('ray'), false);
+  assert.equal(timer.begin('paint'), true, 'presentation timings may still be queued');
+  timer.end();
+  gl.queries[0].available = true;
+  gl.queries[0].nanoseconds = 8000000;
+  const [result] = timer.poll();
+  assert.equal(result.bands, 2);
+  assert.equal(result.epoch, 7);
+  assert.equal(result.milliseconds, 8);
+  assert.equal(timer.busy, false);
+  timer.dispose();
+});
