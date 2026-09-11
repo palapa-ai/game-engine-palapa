@@ -51,6 +51,9 @@ export function createDiagnostics(element, source) {
     if (pageTime) root.getElementById('page').textContent = `${seconds(pageTime)} page loading time`;
     const data = source.renderer.domElement.dataset;
     const start = Number(data.traceStartedAt), end = Number(data.traceFinishedAt);
+    const active = Number(data.traceBounces), target = renderSettings.value.bounces;
+    root.querySelector('[data-setting="bounces"]').textContent = active && active < target
+      ? `${active} → ${target} bounces` : `${target} bounces`;
     root.getElementById('trace').textContent = source.state === 'fallback' ? 'Ray tracing unavailable'
       : start ? `${seconds((end || performance.now()) - start)} ray tracing time` : 'Ray tracing queued';
     root.getElementById('trace').title = 'Elapsed time since the current scene rebuild began, including setup. Resets when the scene changes; stops at the sample target.';

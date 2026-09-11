@@ -2,6 +2,7 @@
 // replaced by a relative import and a settings object. The tracer's own
 // configuration is unchanged, so the image it converges to is the archive's.
 import * as THREE from "./vendor/three.module.min.js";
+import { normalizeTraceViewport, sameTraceViewport, traceViewportSize, applyTraceViewport } from "./trace-viewport.mjs";
 
 let modP = null;
 const mod = () => modP || (modP = import("./vendor/three-gpu-pathtracer.module.js"));
@@ -48,6 +49,9 @@ const bvhWorker = async () => {
 };
 
 export async function attachTracer(renderer, scene, camera, cfg) {
+  const sourceCamera = camera;
+  let viewport = normalizeTraceViewport(cfg.viewport);
+  if (viewport && !camera.isOrthographicCamera) throw new TypeError("Trace viewports require an orthographic camera");
   const { WebGLPathTracer, GradientEquirectTexture, PhysicalCamera } = await mod();
 
   const env = new GradientEquirectTexture();
@@ -65,7 +69,13 @@ export async function attachTracer(renderer, scene, camera, cfg) {
     cam.bokehSize = 0;
     cam.updateProjectionMatrix();
     camera = cam;
+  } else if (camera.isOrthographicCamera) {
+    camera = camera.clone();
   }
+  const syncCamera = () => {
+    if (camera.isOrthographicCamera) applyTraceViewport(camera, sourceCamera, viewport);
+  };
+  syncCamera();
 
   const pt = new WebGLPathTracer(renderer);
   // Cap the render target at the device's max texture size — oversized float
@@ -89,11 +99,18 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   // One renderSample() traces one tile, so more tiles = less work per frame.
   const tileShape = divisions => cfg.scanline ? [1, divisions ** 2] : [divisions, divisions];
   pt.tiles.set(...tileShape(cfg.tiles));
-  pt.synchronizeRenderSize = true;
+  pt.synchronizeRenderSize = !viewport;
   pt.minSamples = 1;
   pt.filterGlossyFactor = 0.5;
 
-  let adaptiveScale = 1;
+  let adaptiveScale = cfg.initialScale ?? 1;
+  pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
+  const syncViewportSize = () => {
+    if (!viewport) return;
+    const size = traceViewportSize(viewport, adaptiveScale * cfg.rtRes / cfg.fxRes, maxTex);
+    pt.setSize(size.width, size.height);
+  };
+  syncViewportSize();
   let bvh = null;
   let disposed = false;
   const cleanup = () => {
@@ -105,7 +122,10 @@ export async function attachTracer(renderer, scene, camera, cfg) {
     env.dispose();
   };
   try { bvh = await bvhWorker(); pt.setBVHWorker(bvh); } catch (e) { /* falls back to the main thread */ }
-  const build = () => (bvh ? pt.setSceneAsync(scene, camera) : Promise.resolve(pt.setScene(scene, camera)));
+  const build = () => {
+    syncCamera();
+    return bvh ? pt.setSceneAsync(scene, camera) : Promise.resolve(pt.setScene(scene, camera));
+  };
   try {
     await build();
     while (pt.isCompiling) await new Promise(resolve => setTimeout(resolve, 16));
@@ -124,6 +144,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       pt.renderToCanvas = present;
       try {
         pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
+        syncViewportSize();
         for (let i = 0; i < (count || 1); i++) pt.renderSample();
         const tg = pt.target;
         if (tg && tg.texture && tg.texture.magFilter !== THREE.NearestFilter) {
@@ -142,6 +163,23 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       if (adaptiveScale === next) return;
       adaptiveScale = next;
       pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
+      syncViewportSize();
+      pt.reset();
+    },
+    setViewport(value) {
+      const next = normalizeTraceViewport(value);
+      if (sameTraceViewport(viewport, next)) return false;
+      if (next && !camera.isOrthographicCamera) throw new TypeError("Trace viewports require an orthographic camera");
+      viewport = next;
+      pt.synchronizeRenderSize = !viewport;
+      syncCamera();
+      pt.updateCamera();
+      syncViewportSize();
+      return true;
+    },
+    setBounces(bounces) {
+      if (pt.bounces === bounces) return;
+      pt.bounces = bounces;
       pt.reset();
     },
     setTiles(divisions) {
@@ -163,7 +201,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       } finally { pt.pausePathTracing = pause; pt.fadeDuration = fade; }
     },
     rebuild() { if (!this.dead) build().catch(() => { this.dead = true; }); },
-    updateCamera() { if (this.dead) return; try { pt.updateCamera(); } catch (e) { this.dead = true; } },
+    updateCamera() { if (this.dead) return; try { syncCamera(); pt.updateCamera(); } catch (e) { this.dead = true; } },
     updateMaterials() { if (this.dead) return; try { pt.updateMaterials(); } catch (e) { this.dead = true; } },
     updateLights() {
       if (this.dead) return;
@@ -176,6 +214,8 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       this.dead = true;
       cleanup();
     },
+    get viewport() { return viewport; },
+    get bounces() { return pt.bounces; },
     get rows() { return pt.tiles.y; },
     get scale() { return adaptiveScale; },
     get target() { return pt.target; },

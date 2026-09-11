@@ -1,6 +1,7 @@
 import * as THREE from './hero/vendor/three.module.min.js';
 import { attachTracer, preloadTracer } from './hero/tracer.mjs';
 import { scanlineCoverage } from './hero/scanline.mjs';
+import { ProgressiveTrace } from './hero/progressive-trace.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
 import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
@@ -42,7 +43,9 @@ export function createPageScene(canvas, options = {}) {
   scene.add(new THREE.AmbientLight(0xffffff, 0.8));
   scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b8b8, 0.7));
 
-  const budget = new FrameBudget({ tiles: 8, maxTiles: 8 });
+  const budget = new FrameBudget({ tiles: 2, maxTiles: 8 });
+  budget.scale = 0.5;
+  let qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
   const timer = gpuTimer(renderer.getContext());
   const staticTarget = new THREE.WebGLRenderTarget(1, 1, {
     minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
@@ -51,17 +54,22 @@ export function createPageScene(canvas, options = {}) {
   const staticMaterial = new THREE.ShaderMaterial({
     uniforms: {
       colorMap: { value: staticTarget.texture }, depthMap: { value: staticTarget.depthTexture },
-      traceMap: { value: staticTarget.texture }, traceCoverage: { value: 0 },
+      traceMap: { value: staticTarget.texture }, traceBounds: { value: new THREE.Vector4(0, 0, 1, 1) }, traceCoverage: { value: 0 }, traceOpacity: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
     fragmentShader: `uniform sampler2D colorMap;
       uniform sampler2D depthMap;
       uniform sampler2D traceMap;
+      uniform vec4 traceBounds;
       uniform float traceCoverage;
+      uniform float traceOpacity;
       varying vec2 vUv;
       void main() {
-        gl_FragColor = traceCoverage > 0. && vUv.y >= 1. - traceCoverage
-          ? texture2D(traceMap, vUv) : texture2D(colorMap, vUv);
+        vec2 traceUv = (vUv - traceBounds.xy) / traceBounds.zw;
+        bool covered = traceCoverage > 0. && traceUv.x >= 0. && traceUv.x <= 1.
+          && traceUv.y >= 1. - traceCoverage && traceUv.y <= 1.;
+        gl_FragColor = covered
+          ? mix(texture2D(colorMap, vUv), texture2D(traceMap, traceUv), traceOpacity) : texture2D(colorMap, vUv);
         gl_FragDepth = texture2D(depthMap, vUv).r;
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -71,6 +79,19 @@ export function createPageScene(canvas, options = {}) {
     blending: THREE.NoBlending, depthFunc: THREE.AlwaysDepth, depthTest: true, depthWrite: true,
   });
   const staticQuad = new FullScreenQuad(staticMaterial);
+  const history = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false }));
+  const historyMaterial = new THREE.ShaderMaterial({
+    uniforms: staticMaterial.uniforms,
+    vertexShader: staticMaterial.vertexShader,
+    fragmentShader: staticMaterial.fragmentShader
+      .replace('gl_FragDepth = texture2D(depthMap, vUv).r;', '')
+      .replace('#include <tonemapping_fragment>', '')
+      .replace('#include <colorspace_fragment>', '')
+      .replace('#include <premultiplied_alpha_fragment>', ''),
+    blending: THREE.NoBlending, depthTest: false, depthWrite: false,
+  });
+  const historyQuad = new FullScreenQuad(historyMaterial);
+  let historyIndex = -1;
   let staticDirty = true;
   const callbacks = new Set();
   let width = 0, height = 0, ratio = 1;
@@ -105,7 +126,8 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceRevision = String(revision);
     canvas.dataset.traceSamples = String(tracer?.samples || 0);
     canvas.dataset.traceTargetSamples = String(renderSettings.value.samples ?? AUTO_SAMPLES);
-    canvas.dataset.traceBounces = String(renderSettings.value.bounces);
+    canvas.dataset.traceBounces = String(qualityPass.bounces);
+    canvas.dataset.traceTargetBounces = String(qualityPass.target);
     canvas.dataset.sceneCount = '1';
     canvas.dataset.frameBudgetMs = String(budget.milliseconds);
     canvas.dataset.traceTiles = `1×${budget.tiles ** 2}`;
@@ -119,6 +141,7 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceGpuPending = String(timer.busy);
     canvas.dataset.traceWidth = String(tracer?.target?.width || 0);
     canvas.dataset.traceHeight = String(tracer?.target?.height || 0);
+    canvas.dataset.traceViewport = JSON.stringify(tracer?.viewport ?? null);
   };
   const wake = () => {
     if (!frame && !disposed && contextAvailable && !document.hidden && width && height) frame = requestAnimationFrame(draw);
@@ -133,13 +156,33 @@ export function createPageScene(canvas, options = {}) {
     notify(options.onError, error);
     dirty = true;
   };
+  const viewport = () => {
+    const rect = canvas.getBoundingClientRect();
+    const left = Math.max(0, -rect.left), top = Math.max(0, -rect.top);
+    const right = Math.min(width, innerWidth - rect.left), bottom = Math.min(height, innerHeight - rect.top);
+    const scaleX = canvas.width / width, scaleY = canvas.height / height;
+    return {
+      left: Math.floor(left * scaleX), top: Math.floor(top * scaleY),
+      width: Math.max(0, Math.ceil(right * scaleX) - Math.floor(left * scaleX)),
+      height: Math.max(0, Math.ceil(bottom * scaleY) - Math.floor(top * scaleY)),
+      fullWidth: canvas.width, fullHeight: canvas.height,
+    };
+  };
+  const sameViewport = (a, b) => a && Object.keys(b).every(key => a[key] === b[key]);
   const rebuild = async () => {
     if (building || disposed || !traceEnabled || tracer?.compiling) return;
+    const visible = viewport();
+    if (visible.width <= 0 || visible.height <= 0) return;
     building = true;
     geometryDirty = false;
     const version = revision;
     tracer?.dispose(); tracer = null;
+    historyIndex = -1;
+    qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
+    budget.resetQuality();
+    budget.scale = 0.5;
     collect();
+    staticDirty = true;
     const tracingScene = scene.clone(true);
     const movingCopies = [];
     tracingScene.traverse(object => { if (object.userData.dynamic) movingCopies.push(object); });
@@ -150,10 +193,9 @@ export function createPageScene(canvas, options = {}) {
     delete canvas.dataset.traceFirstSampleAt;
     status();
     try {
-      const quality = renderSettings.value;
       const next = await attachTracer(renderer, tracingScene, camera, {
-        bounces: quality.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles,
-        dynamicLowRes: false, renderDelay: 0, scanline: true,
+        bounces: qualityPass.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles, initialScale: budget.scale,
+        dynamicLowRes: false, renderDelay: 0, scanline: true, viewport: visible,
         environmentTop: 0xd8d8d8, environmentBottom: 0xb8b8b8,
       });
       if (disposed || version !== revision) next.dispose();
@@ -179,18 +221,44 @@ export function createPageScene(canvas, options = {}) {
     try { renderer.render(scene, camera); staticDirty = false; }
     finally { restore(); renderer.setRenderTarget(null); }
   };
-  const present = () => {
-    cacheStatic();
-    renderer.setScissorTest(false);
-    renderer.setRenderTarget(null);
-    renderer.autoClear = true;
+  const composite = () => {
     const traced = tracer && !geometryDirty && tracer.samples > 0;
+    staticMaterial.uniforms.colorMap.value = historyIndex < 0 ? staticTarget.texture : history[historyIndex].texture;
     staticMaterial.uniforms.traceMap.value = traced ? tracer.target.texture : staticTarget.texture;
     staticMaterial.uniforms.traceCoverage.value = traced
       ? scanlineCoverage(tracer.samples, tracer.target.height, tracer.rows) : 0;
+    const area = tracer?.viewport;
+    if (area) staticMaterial.uniforms.traceBounds.value.set(
+      area.left / area.fullWidth, 1 - (area.top + area.height) / area.fullHeight,
+      area.width / area.fullWidth, area.height / area.fullHeight,
+    );
+    const fadeSamples = Math.min(4, renderSettings.value.samples ?? AUTO_SAMPLES);
+    staticMaterial.uniforms.traceOpacity.value = traced ? Math.min(1, tracer.samples / fadeSamples) : 0;
+  };
+  const preserve = () => {
+    if (!tracer || tracer.samples <= 0) return;
+    cacheStatic();
+    composite();
+    const next = (historyIndex + 1) % history.length;
+    history[next].setSize(canvas.width, canvas.height);
+    renderer.setScissorTest(false);
+    renderer.setRenderTarget(history[next]);
+    renderer.autoClear = true;
+    historyQuad.render(renderer);
+    renderer.setRenderTarget(null);
+    historyIndex = next;
+  };
+  const present = visible => {
+    cacheStatic();
+    renderer.setRenderTarget(null);
+    renderer.setScissor(visible.left, canvas.height - visible.top - visible.height, visible.width, visible.height);
+    renderer.setScissorTest(true);
+    renderer.autoClear = true;
+    composite();
     renderer.clear();
     renderer.autoClear = false;
     staticQuad.render(renderer);
+    renderer.setScissorTest(false);
   };
   const moving = () => {
     if (!dynamicRoots.some(group => group.visible)) return;
@@ -221,15 +289,31 @@ export function createPageScene(canvas, options = {}) {
     previous = time;
     [...callbacks].forEach(callback => { if (callbacks.has(callback)) notify(callback, { time, delta }); });
     try {
+      const visible = viewport();
+      if (tracer && visible.width > 0 && visible.height > 0 && !sameViewport(tracer.viewport, visible)) {
+        preserve();
+        tracer.setViewport(visible);
+        qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
+        tracer.setBounces(qualityPass.bounces);
+        phase = 'tracing';
+        canvas.dataset.traceStartedAt = String(performance.now());
+        delete canvas.dataset.traceFinishedAt;
+        delete canvas.dataset.traceFirstSampleAt;
+      }
       timer.begin('paint');
-      try { present(); moving(); }
+      try { present(visible); moving(); }
       finally { timer.end(); }
       dirty = false;
       if (!firstFrame) { firstFrame = true; notify(options.onFirstFrame); }
-      if (tracer && !building && !geometryDirty && phase !== 'complete' && !tracer.compiling) {
+      if (tracer && visible.width > 0 && visible.height > 0 && !building && !geometryDirty && phase !== 'complete' && !tracer.compiling) {
         if (budget.allows(performance.now(), timer.busy)) {
+          if (tracer.rows !== budget.tiles ** 2 || tracer.scale !== budget.scale) preserve();
           tracer.setTiles(budget.tiles);
           tracer.setScale(budget.scale);
+          if (qualityPass.advance(tracer.samples)) {
+            preserve();
+            tracer.setBounces(qualityPass.bounces);
+          }
           const started = performance.now(), divisions = budget.tiles;
           timer.begin('ray', { tiles: divisions, scale: budget.scale });
           let sampled;
@@ -239,11 +323,11 @@ export function createPageScene(canvas, options = {}) {
           if (tracer.samples > previousSamples) {
             canvas.dataset.traceFirstSampleAt ||= String(performance.now());
             budget.submitted();
-            budget.ray(performance.now() - started);
+            if (previousSamples > 0) budget.ray(performance.now() - started);
           }
           if (!sampled) throw Error('Page ray tracing unavailable');
           dirty = true;
-          if (tracer.samples >= (renderSettings.value.samples ?? AUTO_SAMPLES)) {
+          if (qualityPass.settled && tracer.samples >= (renderSettings.value.samples ?? AUTO_SAMPLES)) {
             phase = 'complete';
             canvas.dataset.traceFinishedAt = String(performance.now());
           }
@@ -253,11 +337,16 @@ export function createPageScene(canvas, options = {}) {
     } catch (error) { fail(error); }
     budget.finish(performance.now());
     if (geometryDirty && traceEnabled) void rebuild();
-    if (building || geometryDirty || dirty || callbacks.size || (tracer && phase !== 'complete')) wake();
+    const visible = viewport();
+    if (visible.width > 0 && visible.height > 0 &&
+        (building || geometryDirty || dirty || callbacks.size || (tracer && phase !== 'complete'))) wake();
   }
   const invalidate = (change = {}) => {
     dirty = true;
-    if (!change.dynamic) staticDirty = true;
+    if (!change.dynamic) {
+      collect();
+      staticDirty = true;
+    }
     if (change.geometry !== false && !change.dynamic) {
       revision++;
       geometryDirty = true;
@@ -323,10 +412,17 @@ export function createPageScene(canvas, options = {}) {
     },
     invalidate, resize,
     resetTracingQuality() {
+      preserve();
+      qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
       budget.resetQuality();
+      budget.scale = 0.5;
+      tracer?.setBounces(1);
       tracer?.setTiles(budget.tiles);
-      tracer?.setScale(1);
+      tracer?.setScale(budget.scale);
       if (tracer) phase = 'tracing';
+      canvas.dataset.traceStartedAt = String(performance.now());
+      delete canvas.dataset.traceFinishedAt;
+      delete canvas.dataset.traceFirstSampleAt;
       dirty = true;
       wake();
     },
@@ -360,6 +456,9 @@ export function createPageScene(canvas, options = {}) {
       staticTarget.dispose();
       staticQuad.dispose();
       staticMaterial.dispose();
+      history.forEach(target => target.dispose());
+      historyQuad.dispose();
+      historyMaterial.dispose();
       scene.clear();
       renderer.dispose();
     },
