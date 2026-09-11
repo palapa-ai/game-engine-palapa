@@ -1,13 +1,15 @@
-const defaults = Object.freeze({ samples: null, bounces: 4, resolution: 1, traceMode: 'scene' });
+const defaults = Object.freeze({ samples: null, bounces: 4, resolution: 1, traceMode: 'scene', enabled: true });
+export function createRenderSettings(initial = {}) {
 let current = defaults;
 const listeners = new Set();
-export const renderSettings = {
+const settings = {
   get value() { return current; },
   update(next) {
     const value = { ...current, ...next };
     if (value.samples !== null && (!Number.isInteger(value.samples) || value.samples < 1 || value.samples > 1024)) throw RangeError('Samples must be 1–1024 or auto');
     if (!Number.isInteger(value.bounces) || value.bounces < 1 || value.bounces > 8) throw RangeError('Bounces must be 1–8');
     if (!Number.isFinite(value.resolution) || value.resolution < 0.25 || value.resolution > 2) throw RangeError('Resolution must be 25–200%');
+    if (typeof value.enabled !== 'boolean') throw RangeError('Enabled must be a boolean');
     if (!['text', 'scene'].includes(value.traceMode)) throw RangeError('Trace mode must be text or scene');
     if (Object.keys(defaults).every(key => current[key] === value[key])) return;
     current = Object.freeze(value);
@@ -18,3 +20,9 @@ export const renderSettings = {
     return () => listeners.delete(listener);
   },
 };
+
+settings.update(initial);
+return settings;
+}
+
+export const renderSettings = createRenderSettings();

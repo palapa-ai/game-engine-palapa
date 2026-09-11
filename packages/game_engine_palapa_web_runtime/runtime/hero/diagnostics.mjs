@@ -15,17 +15,29 @@ export function createFrameCounter(element) {
   return { dispose() { cancelAnimationFrame(frame); } };
 }
 
-export function createDiagnostics(element, source) {
+export function createDiagnostics(element, source, { traces = [] } = {}) {
   const root = element.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>
     :host{position:fixed;right:12px;top:12px;z-index:20;width:216px;max-height:calc(100dvh - 24px);overflow:auto;color:#fff;background:#151515ed;border:1px solid #444;font:12px/1.5 ui-monospace,monospace;border-radius:6px;box-shadow:0 4px 24px #0006}
-    *{box-sizing:border-box}summary{cursor:pointer;padding:12px;font-weight:600}section{padding:0 12px 12px}button{display:block;width:100%;margin-bottom:10px;font:inherit;color:inherit;background:#282828;border:1px solid #555;border-radius:3px;padding:6px;cursor:pointer}button:focus-visible{outline:2px solid #66f5f5}output{display:block;font-variant-numeric:tabular-nums}hr{border:0;border-top:1px solid #444;margin:12px 0}
+    *{box-sizing:border-box}label{display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer}input{accent-color:#66f5f5}summary{cursor:pointer;padding:12px;font-weight:600}section{padding:0 12px 12px}button{display:block;width:100%;margin-bottom:10px;font:inherit;color:inherit;background:#282828;border:1px solid #555;border-radius:3px;padding:6px;cursor:pointer}button:focus-visible{outline:2px solid #66f5f5}output{display:block;font-variant-numeric:tabular-nums}hr{border:0;border-top:1px solid #444;margin:12px 0}
   </style><details open><summary>Debug</summary><section>
-    <button type="button" data-setting="samples"></button>
+    <div id="traces"></div><button type="button" data-setting="samples"></button>
     <button type="button" data-setting="bounces"></button>
     <button type="button" data-setting="resolution"></button>
     <button type="button" id="reset">Reset</button><hr><output id="fps"></output><output id="page">Loading page…</output><output id="trace">Ray tracing queued</output><output id="spp"></output>
   </section></details>`;
+  const traceHandles = traces.map(({ label, settings, source: traceSource }) => {
+    const control = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    control.append(input, document.createTextNode(label));
+    root.getElementById('traces').append(control);
+    const sync = () => { input.checked = settings.value.enabled; };
+    input.addEventListener('change', () => settings.update({ enabled: input.checked }));
+    const unsubscribe = settings.subscribe(sync);
+    sync();
+    return { unsubscribe, source: traceSource };
+  });
   const choices = { samples: [null, 1, 2, 4, 8, 16, 32, 64], bounces: [1, 2, 4, 8], resolution: [.25, .5, .75, 1, 1.5, 2] };
   const buttons = [...root.querySelectorAll('[data-setting]')];
   const sync = () => buttons.forEach(button => {
@@ -41,6 +53,7 @@ export function createDiagnostics(element, source) {
   root.getElementById('reset').addEventListener('click', () => {
     renderSettings.update({ samples: null, bounces: 4, resolution: 1 });
     source.resetTracingQuality?.();
+    traceHandles.forEach(handle => { if (handle.source !== source) handle.source?.resetTracingQuality?.(); });
   });
   const unsubscribe = renderSettings.subscribe(sync);
   sync();
@@ -58,7 +71,7 @@ export function createDiagnostics(element, source) {
       ? `${Number(currentResolution.toFixed(1))} → ${resolution}% resolution` : `${resolution}% resolution`;
     root.querySelector('[data-setting="bounces"]').textContent = active && active < target
       ? `${active} → ${target} bounces` : `${target} bounces`;
-    root.getElementById('trace').textContent = source.state === 'fallback' ? 'Ray tracing unavailable'
+    root.getElementById('trace').textContent = source.state === 'raster' ? 'Ray tracing off' : source.state === 'fallback' ? 'Ray tracing unavailable'
       : start ? `${seconds((end || performance.now()) - start)} ray tracing time` : 'Ray tracing queued';
     root.getElementById('trace').title = 'Elapsed time since the current scene rebuild began, including setup. Resets when the scene changes; stops at the sample target.';
     root.getElementById('spp').textContent = `${source.samples > 0 && source.samples < 1 ? source.samples.toFixed(2) : Math.floor(source.samples)} spp`;
@@ -67,5 +80,5 @@ export function createDiagnostics(element, source) {
   };
   const timer = setInterval(read, 250);
   read();
-  return { dispose() { clearInterval(timer); fps.dispose(); unsubscribe(); root.replaceChildren(); } };
+  return { dispose() { clearInterval(timer); fps.dispose(); unsubscribe(); traceHandles.forEach(handle => handle.unsubscribe()); root.replaceChildren(); } };
 }

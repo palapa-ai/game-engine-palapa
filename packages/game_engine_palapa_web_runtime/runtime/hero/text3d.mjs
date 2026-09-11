@@ -31,14 +31,18 @@ const em = (font, str) => [...str].reduce((width, ch) => {
 const rowEm = (font, row) =>
   row.reduce((width, seg, i) => width + em(font, seg.text) + (i ? GAP : 0), 0);
 
-const word = (font, text, color, size) => {
+const word = (font, text, color, size, preserveWhite = false) => {
   const geometry = new TextGeometry(text, {
     font, size, depth: size * 0.2, curveSegments: 2,
   });
   geometry.computeBoundingBox();
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({
+      color, roughness: 0.35, metalness: 0.05,
+      emissive: preserveWhite && color === 0xffffff ? 0xffffff : 0x000000,
+      toneMapped: !(preserveWhite && color === 0xffffff),
+    }),
   );
   mesh.userData.traceRole = 'text';
   const { min, max } = geometry.boundingBox;
@@ -58,10 +62,10 @@ const light = (scene) => {
   });
 };
 
-const row = (font, segs, size, parent, maxWidth) => {
+const row = (font, segs, size, parent, maxWidth, preserveWhite) => {
   const group = new THREE.Group();
   const x = segs.reduce((pen, seg) => {
-    const item = word(font, seg.text, seg.color, size);
+    const item = word(font, seg.text, seg.color, size, preserveWhite);
     item.mesh.position.x = pen - item.mn;
     group.add(item.mesh);
     return pen + item.w + size * GAP;
@@ -214,7 +218,7 @@ export function buildTextGroup(font, definition, width) {
         mesh.userData.traceRole = 'content';
         group.add(mesh);
       } else {
-        const item = word(font, entry.text, entry.color, entry.size);
+        const item = word(font, entry.text, entry.color, entry.size, content.preserveWhite);
         item.mesh.position.set(-width / 2 + entry.x, -entry.baseline, front - entry.size * 0.2);
         group.add(item.mesh);
       }
@@ -224,7 +228,7 @@ export function buildTextGroup(font, definition, width) {
       const line = new THREE.Group();
       line.position.set(0, -size * (FIRST_BASELINE + index * LINE), front - size * 0.2);
       group.add(line);
-      row(font, segments, size, line, Math.max(1, width - 4));
+      row(font, segments, size, line, Math.max(1, width - 4), content.preserveWhite);
     });
   }
   return { group, height, layout };

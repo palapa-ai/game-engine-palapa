@@ -410,7 +410,10 @@ export function createCapacity(canvas, options) {
       const text = (label, color, size = FONT_SIZE) => {
         const geometry = new TextGeometry(label, { font, size, depth: size * 0.25, curveSegments: 2 });
         geometry.computeBoundingBox();
-        const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color }));
+        const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({
+          color, emissive: options.preserveWhite && color === 0xffffff ? 0xffffff : 0x000000,
+          toneMapped: !(options.preserveWhite && color === 0xffffff),
+        }));
         mesh.userData.traceRole = 'text';
         return { mesh, width: geometry.boundingBox.max.x - geometry.boundingBox.min.x };
       };

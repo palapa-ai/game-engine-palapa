@@ -161,7 +161,7 @@ test('render settings notify only real valid changes and release disposed subscr
   renderSettings.update({samples:64});
   assert.equal(seen.length,1);
   for (const invalid of [{samples:0},{samples:NaN},{bounces:9},{resolution:Infinity},{traceMode:'wall'},{traceMode:null}]) assert.throws(() => renderSettings.update(invalid),RangeError);
-  assert.deepEqual(renderSettings.value,{samples:64,resolution:.5,bounces:2,traceMode:'scene'});
+  assert.deepEqual(renderSettings.value,{samples:64,resolution:.5,bounces:2,traceMode:'scene',enabled:true});
   renderSettings.update({traceMode:'text'});
   assert.equal(seen.length,2);
   renderSettings.update({traceMode:'text'});
@@ -198,4 +198,36 @@ test('shared text geometry fits page coordinates and preserves semantic layout',
       group.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
     }
   }
+});
+
+
+test('separate scene settings isolate tracing enablement and reset', async () => {
+  const {createRenderSettings} = await import('../runtime/hero/render-settings.mjs');
+  const bricks = createRenderSettings({enabled:false});
+  const content = createRenderSettings();
+  let changes = 0;
+  content.subscribe(() => changes++);
+  bricks.update({enabled:true, bounces:8});
+  assert.equal(content.value.enabled,true);
+  assert.equal(content.value.bounces,4);
+  assert.equal(changes,0);
+  content.update({enabled:false});
+  assert.equal(bricks.value.enabled,true);
+  assert.equal(changes,1);
+  assert.throws(() => content.update({enabled:'true'}),RangeError);
+  assert.equal(content.value.enabled,false);
+});
+
+test('white text can retain white luminance without changing colored accents', () => {
+  const font = new FontLoader().parse({ resolution:1000, boundingBox:{yMin:0,yMax:800}, underlineThickness:50, glyphs:{
+    '?':{ha:700,o:'m 0 0 l 700 0 l 700 800 l 0 800 l 0 0'},
+  }});
+  const {group} = buildTextGroup(font, {preserveWhite:true,rows:[[{text:'A',color:0xffffff},{text:'B',color:0xff66cc}]]},300);
+  const materials=[];
+  group.traverse(object => {if(object.isMesh)materials.push(object.material);});
+  assert.equal(materials[0].emissive.getHex(),0xffffff);
+  assert.equal(materials[0].toneMapped,false);
+  assert.equal(materials[1].emissive.getHex(),0);
+  assert.equal(materials[1].color.getHex(),0xff66cc);
+  group.traverse(object => {object.geometry?.dispose();object.material?.dispose();});
 });
