@@ -154,20 +154,20 @@ test('live text slots retain a single reserved space across wrapping and split a
 
 test('render settings notify only real valid changes and release disposed subscribers', async () => {
   const {renderSettings} = await import('../runtime/hero/render-settings.mjs');
-  assert.equal(renderSettings.value.traceMode, 'text');
+  assert.equal(renderSettings.value.traceMode, 'scene');
   const seen = [];
   const unsubscribe = renderSettings.subscribe(value => seen.push(value));
   renderSettings.update({samples:64,resolution:.5,bounces:2});
   renderSettings.update({samples:64});
   assert.equal(seen.length,1);
   for (const invalid of [{samples:0},{samples:NaN},{bounces:9},{resolution:Infinity},{traceMode:'wall'},{traceMode:null}]) assert.throws(() => renderSettings.update(invalid),RangeError);
-  assert.deepEqual(renderSettings.value,{samples:64,resolution:.5,bounces:2,traceMode:'text'});
-  renderSettings.update({traceMode:'scene'});
+  assert.deepEqual(renderSettings.value,{samples:64,resolution:.5,bounces:2,traceMode:'scene'});
+  renderSettings.update({traceMode:'text'});
   assert.equal(seen.length,2);
-  renderSettings.update({traceMode:'scene'});
+  renderSettings.update({traceMode:'text'});
   assert.equal(seen.length,2);
   unsubscribe();
-  renderSettings.update({samples:null,resolution:1,bounces:4,traceMode:'text'});
+  renderSettings.update({samples:null,resolution:1,bounces:4,traceMode:'scene'});
   assert.equal(seen.length,2);
 });
 

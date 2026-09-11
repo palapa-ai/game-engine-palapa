@@ -1,4 +1,4 @@
-const defaults = Object.freeze({ samples: null, bounces: 4, resolution: 1, traceMode: 'text' });
+const defaults = Object.freeze({ samples: null, bounces: 4, resolution: 1, traceMode: 'scene' });
 let current = defaults;
 const listeners = new Set();
 export const renderSettings = {
