@@ -12,6 +12,10 @@ export function traceResolutionConfidence(target, viewport) {
   return Math.min(1, target.width / viewport.width) * Math.min(1, target.height / viewport.height);
 }
 
+export function traceDisplayLimit(target, viewport, qualitySettled) {
+  return qualitySettled ? traceResolutionConfidence(target, viewport) : 0;
+}
+
 export function traceConfidence(samples, selectedSamples, resolutionConfidence) {
   return Math.min(1, Math.max(0, samples) / traceSampleGoal(selectedSamples))
     * Math.min(1, Math.max(0, resolutionConfidence));

@@ -40,6 +40,7 @@ const word = (font, text, color, size) => {
     geometry,
     new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.05 }),
   );
+  mesh.userData.traceRole = 'text';
   const { min, max } = geometry.boundingBox;
   return { mesh, w: max.x - min.x, mn: min.x };
 };
@@ -210,6 +211,7 @@ export function buildTextGroup(font, definition, width) {
         );
         mesh.position.set(-width / 2 + entry.x + entry.width / 2,
           -entry.top - entry.size / 2, front - depth / 2);
+        mesh.userData.traceRole = 'content';
         group.add(mesh);
       } else {
         const item = word(font, entry.text, entry.color, entry.size);

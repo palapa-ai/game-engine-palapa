@@ -4,12 +4,13 @@ import { scanlineCoverage } from './hero/scanline.mjs';
 import { ProgressiveTrace } from './hero/progressive-trace.mjs';
 import { ProgressiveResolution } from './hero/progressive-resolution.mjs';
 import { TraceReveal, TRACE_REVEAL_MS } from './hero/trace-reveal.mjs';
-import { traceSampleGoal, traceResolutionConfidence, canPreserveTrace } from './hero/trace-confidence.mjs';
+import { traceSampleGoal, traceResolutionConfidence, traceDisplayLimit, canPreserveTrace } from './hero/trace-confidence.mjs';
 import { TraceHistory } from './hero/trace-history.mjs';
 import { BackdropCache } from './hero/backdrop-cache.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
 import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
+import { cloneTraceScene, traceForeground, traceRoles, traceStageFor } from './hero/trace-scene.mjs';
 
 const MAX_PIXELS = 3000000;
 const AUTO_SAMPLES = 64;
@@ -68,6 +69,7 @@ export function createPageScene(canvas, options = {}) {
       backdropMap: { value: backdropCache.target.texture }, backdropDepth: { value: backdropCache.target.depthTexture },
       traceMap: { value: staticTarget.texture }, traceBounds: { value: new THREE.Vector4(0, 0, 1, 1) }, traceCoverage: { value: 0 },
       traceReveal: { value: revealTexture }, traceTime: { value: 0 }, traceForeground: { value: true },
+      traceTextOnly: { value: renderSettings.value.traceMode === 'text' },
       traceSamples: { value: 0 }, traceFadeSamples: { value: 16 }, tracePartialCoverage: { value: 0 },
       traceResolutionConfidence: { value: 0 },
     },
@@ -86,6 +88,7 @@ export function createPageScene(canvas, options = {}) {
       uniform float traceResolutionConfidence;
       uniform float tracePartialCoverage;
       uniform bool traceForeground;
+      uniform bool traceTextOnly;
       varying vec2 vUv;
       void main() {
         vec2 traceUv = (vUv - traceBounds.xy) / traceBounds.zw;
@@ -101,7 +104,8 @@ export function createPageScene(canvas, options = {}) {
           float confidence = traceResolutionConfidence * min(1., samplesHere / traceFadeSamples);
           float weight = firstResult < 0. ? 0. : confidence * smoothstep(0., ${TRACE_REVEAL_MS / 1000}, traceTime - firstResult);
           if (traceForeground) {
-            bool foregroundPixel = traced.a > 0. || texture2D(depthMap, vUv).r < texture2D(backdropDepth, vUv).r;
+            bool rasterForeground = texture2D(depthMap, vUv).r < texture2D(backdropDepth, vUv).r;
+            bool foregroundPixel = rasterForeground || (!traceTextOnly && traced.a > 0.);
             if (foregroundPixel) {
               vec4 backdrop = texture2D(backdropMap, vUv);
               float combined = traced.a + backdrop.a * (1. - traced.a);
@@ -139,7 +143,7 @@ export function createPageScene(canvas, options = {}) {
   let frame = 0, previous = null, tracer = null;
   let disposed = false, building = false, geometryDirty = true, dirty = true;
   let revision = 0, phase = 'starting', firstFrame = false;
-  let traceStage = 'foreground';
+  let traceStage = traceStageFor(renderSettings.value.traceMode);
   let dynamicRoots = [], staticMeshes = [], foregroundMeshes = [];
   let traceEnabled = true, contextAvailable = true;
 
@@ -163,7 +167,7 @@ export function createPageScene(canvas, options = {}) {
       if (moving && !dynamic) dynamicRoots.push(object);
       if (object.isMesh && !moving) {
         staticMeshes.push(object);
-        if (role !== 'backdrop') foregroundMeshes.push(object);
+        if (traceForeground(role, renderSettings.value.traceMode)) foregroundMeshes.push(object);
       }
       object.children.forEach(child => visit(child, moving, role));
     };
@@ -178,6 +182,7 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.render = phase;
     canvas.dataset.traceMethod = 'path-tracing';
     canvas.dataset.traceStage = traceStage;
+    canvas.dataset.traceMode = renderSettings.value.traceMode;
     const selectedSamples = renderSettings.value.samples ?? AUTO_SAMPLES;
     canvas.dataset.traceStageTargetSamples = String(traceStage === 'foreground' ? Math.min(4, selectedSamples) : resolutionPass.sampleTarget(tracer?.scale ?? budget.scale, selectedSamples));
     canvas.dataset.traceRevision = String(revision);
@@ -238,7 +243,7 @@ export function createPageScene(canvas, options = {}) {
     const version = revision;
     tracer?.dispose(); tracer = null;
     traceHistory.reset();
-    traceStage = 'foreground';
+    traceStage = traceStageFor(renderSettings.value.traceMode);
     resetReveal();
     qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
     resolutionPass = new ProgressiveResolution();
@@ -248,10 +253,8 @@ export function createPageScene(canvas, options = {}) {
     budget.setViewportHeight(visible.height);
     collect();
     staticDirty = true;
-    const tracingScene = scene.clone(true);
-    const movingCopies = [];
-    tracingScene.traverse(object => { if (object.userData.dynamic) movingCopies.push(object); });
-    movingCopies.forEach(object => object.removeFromParent());
+    const { scene: tracingScene, meshes } = cloneTraceScene(scene, renderSettings.value.traceMode);
+    canvas.dataset.traceMeshCount = String(meshes);
     phase = 'loading';
     canvas.dataset.traceStartedAt = String(performance.now());
     delete canvas.dataset.traceFinishedAt;
@@ -259,15 +262,22 @@ export function createPageScene(canvas, options = {}) {
     delete canvas.dataset.traceForegroundFinishedAt;
     status();
     try {
+      if (meshes === 0) {
+        phase = 'complete';
+        canvas.dataset.traceFinishedAt = String(performance.now());
+        return;
+      }
       const next = await attachTracer(renderer, tracingScene, camera, {
         bounces: qualityPass.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles, initialScale: budget.scale,
-        dynamicLowRes: false, renderDelay: 0, scanline: true, viewport: visible, foregroundOnly: true,
+        dynamicLowRes: false, renderDelay: 0, scanline: true, viewport: visible,
+        foregroundOnly: renderSettings.value.traceMode === 'scene',
         environmentTop: 0xd8d8d8, environmentBottom: 0xb8b8b8,
       });
       if (disposed || version !== revision) next.dispose();
       else {
         tracer = next;
-        if (!tracer.hasBackdrop) { traceStage = 'background'; tracer.setForegroundOnly(false); }
+        traceStage = traceStageFor(renderSettings.value.traceMode, tracer.hasBackdrop);
+        tracer.setForegroundOnly(traceStage === 'foreground');
         resetReveal();
         phase = 'tracing';
       }
@@ -307,8 +317,10 @@ export function createPageScene(canvas, options = {}) {
     staticMaterial.uniforms.traceSamples.value = traced ? tracer.samples : 0;
     staticMaterial.uniforms.tracePartialCoverage.value = traced ? scanlineCoverage(tracer.samples % 1, tracer.target.height, tracer.rows) : 0;
     staticMaterial.uniforms.traceFadeSamples.value = traceSampleGoal(renderSettings.value.samples ?? AUTO_SAMPLES);
-    staticMaterial.uniforms.traceResolutionConfidence.value = traced ? traceResolutionConfidence(tracer.target, area) : 0;
-    staticMaterial.uniforms.traceForeground.value = traceStage === 'foreground';
+    staticMaterial.uniforms.traceResolutionConfidence.value = traced
+      ? traceDisplayLimit(tracer.target, area, qualityPass.settled) : 0;
+    staticMaterial.uniforms.traceForeground.value = traceStage !== 'background';
+    staticMaterial.uniforms.traceTextOnly.value = renderSettings.value.traceMode === 'text';
   };
   const captureHistory = (time, transient = false) => {
     cacheStatic();
@@ -384,7 +396,7 @@ export function createPageScene(canvas, options = {}) {
         tracer.setScale(budget.scale);
         tracer.setTiles(budget.tiles);
         tracer.setViewport(visible);
-        traceStage = tracer.hasBackdrop ? 'foreground' : 'background';
+        traceStage = traceStageFor(renderSettings.value.traceMode, tracer.hasBackdrop);
         tracer.setForegroundOnly(traceStage === 'foreground');
         budget.resetBatchMeasurements();
         qualityPass = new ProgressiveTrace(renderSettings.value.bounces);
@@ -416,7 +428,7 @@ export function createPageScene(canvas, options = {}) {
         const foregroundComplete = qualityPass.settled && tracer.samples >= Math.min(4, target);
         const stageComplete = qualityPass.settled && (traceStage === 'foreground'
           ? foregroundComplete : resolutionPass.complete({ samples: tracer.samples, scale: tracer.scale, targetSamples: target }));
-        const refinement = traceStage === 'background' && qualityPass.settled && reveal.settled(time)
+        const refinement = traceStage !== 'foreground' && qualityPass.settled && reveal.settled(time)
           ? resolutionPass.advance({ samples: tracer.samples, scale: tracer.scale, tiles: budget.tiles, now: time, targetSamples: target }) : null;
         const sampleLimit = traceStage === 'foreground' ? Math.min(4, target) : target;
         const batch = stageComplete || refinement || (qualityPass.settled && tracer.samples >= sampleLimit)
@@ -518,6 +530,10 @@ export function createPageScene(canvas, options = {}) {
     invalidate();
   };
   const qualityChanged = () => {
+    traceHistory.reset();
+    tracer?.dispose(); tracer = null;
+    resetReveal();
+    traceStage = traceStageFor(renderSettings.value.traceMode);
     budget.resetQuality();
     const previousRatio = ratio;
     ratio = 0;
@@ -545,7 +561,7 @@ export function createPageScene(canvas, options = {}) {
     scene, camera, renderer,
     add(group, { dynamic = false, role } = {}) {
       if (role !== undefined) {
-        if (!['content', 'backdrop'].includes(role)) throw RangeError('Unknown trace role');
+        if (!traceRoles.includes(role)) throw RangeError('Unknown trace role');
         group.userData.traceRole = role;
       }
       if (dynamic) group.userData.dynamic = true;
@@ -569,7 +585,7 @@ export function createPageScene(canvas, options = {}) {
       budget.maxTiles = 8;
       budget.resetQuality();
       budget.scale = 0.5;
-      traceStage = tracer?.hasBackdrop ? 'foreground' : 'background';
+      traceStage = traceStageFor(renderSettings.value.traceMode, tracer?.hasBackdrop);
       tracer?.setForegroundOnly(traceStage === 'foreground');
       tracer?.setBounces(1);
       tracer?.setTiles(budget.tiles);

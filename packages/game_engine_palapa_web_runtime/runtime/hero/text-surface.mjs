@@ -47,7 +47,7 @@ export async function createTextSurface(element, { host, fontUrl, content, onRea
         anchor.style.cssText = `position:absolute;pointer-events:auto;left:${entry.x}px;top:${entry.baseline - entry.size}px;width:${entry.width}px;height:${entry.size * 1.5}px;color:transparent;font-size:${entry.size}px;white-space:nowrap`;
         links.append(anchor);
       }
-      host.add(group);
+      host.add(group, { role: 'text' });
       onReady?.(built.height);
     }
     place();

@@ -681,7 +681,9 @@ export function createLaunchControls(element, options) {
           -(bb.max.y + bb.min.y) / 2,
           -(bb.max.z + bb.min.z) / 2,
         );
-        b.content.add(new THREE.Mesh(geo, [faceMat, sideMat]));
+        const text = new THREE.Mesh(geo, [faceMat, sideMat]);
+        text.userData.traceRole = 'text';
+        b.content.add(text);
         splitMaterials(b.content);
         return b;
       };

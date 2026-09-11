@@ -411,6 +411,7 @@ export function createCapacity(canvas, options) {
         const geometry = new TextGeometry(label, { font, size, depth: size * 0.25, curveSegments: 2 });
         geometry.computeBoundingBox();
         const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color }));
+        mesh.userData.traceRole = 'text';
         return { mesh, width: geometry.boundingBox.max.x - geometry.boundingBox.min.x };
       };
       const flag = (symbol, capHeight = null) => {
@@ -435,8 +436,10 @@ export function createCapacity(canvas, options) {
             texture.offset.set(left / 256, 1 - (bottom + 1) / 256);
           }
         }
-        return new THREE.Mesh(new THREE.PlaneGeometry(width, height),
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height),
           new THREE.MeshBasicMaterial({ map: texture, transparent: true }));
+        mesh.userData.traceRole = 'text';
+        return mesh;
       };
       const addText = (page, label, x, y, color, { right = false, maxWidth = Infinity } = {}) => {
         const value = text(label, color);
