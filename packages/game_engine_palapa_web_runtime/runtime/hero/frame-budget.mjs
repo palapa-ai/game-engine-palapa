@@ -1,3 +1,5 @@
+import { scanlineRows } from './scanline.mjs';
+
 const smooth = (previous, next) => Math.max(next, previous * 0.8 + next * 0.2);
 
 // A GPU draw cannot be preempted. Reserve presentation time and use asynchronous
@@ -12,6 +14,7 @@ export class FrameBudget {
     this.maxTiles = Math.max(tiles, maxTiles);
     this.minScale = minScale;
     this.scale = 1;
+    this.viewportHeight = Infinity;
     this.paintGpuMs = 0;
     this.rayGpuMs = 2;
     this.rayCpuMs = 0;
@@ -46,6 +49,16 @@ export class FrameBudget {
     this.batchGpuWork = null;
     this.batchCpuWork = null;
   }
+  rowsFor(tiles = this.tiles, scale = this.scale) {
+    return scanlineRows(tiles, Math.max(1, Math.floor(this.viewportHeight * scale)));
+  }
+  get rows() { return this.rowsFor(); }
+  setViewportHeight(height) {
+    if (!Number.isInteger(height) || height < 1) throw RangeError('Trace viewport height must be positive');
+    if (height === this.viewportHeight) return;
+    this.viewportHeight = height;
+    this.resetBatchMeasurements();
+  }
   resetCadence() {
     this.previous = null;
     this.traced = false;
@@ -64,15 +77,18 @@ export class FrameBudget {
   shrink() {
     this.fastTiles = 0;
     this.blockedFrames = 0;
-    if (this.tiles < this.maxTiles) {
-      this.tiles = Math.min(this.maxTiles, this.tiles * 2);
-      this.rayGpuMs = Math.max(0.25, this.rayGpuMs / 4);
+    const previousRows = this.rows;
+    const nextTiles = Math.min(this.maxTiles, this.tiles * 2);
+    if (nextTiles > this.tiles && this.rowsFor(nextTiles) > previousRows) {
+      this.tiles = nextTiles;
+      this.rayGpuMs = Math.max(0.25, this.rayGpuMs * previousRows / this.rows);
       this.resetBatchMeasurements();
       return true;
     }
     if (this.scale > this.minScale) {
+      const previousScale = this.scale;
       this.scale = Math.max(this.minScale, this.scale / 2);
-      this.rayGpuMs = Math.max(0.25, this.rayGpuMs / 4);
+      this.rayGpuMs = Math.max(0.25, this.rayGpuMs * (this.scale / previousScale) ** 2 * previousRows / this.rows);
       this.resetBatchMeasurements();
       return true;
     }
@@ -81,34 +97,36 @@ export class FrameBudget {
   paint(gpuMs) {
     if (Number.isFinite(gpuMs) && gpuMs >= 0) this.paintGpuMs = smooth(this.paintGpuMs, gpuMs);
   }
-  ray(cpuMs, gpuMs = null, tiles = this.tiles, scale = this.scale, bands = 1, epoch = this.measurementEpoch) {
+  ray(cpuMs, gpuMs = null, tiles = this.tiles, scale = this.scale, bands = 1, epoch = this.measurementEpoch, rows = this.rowsFor(tiles, scale)) {
     if (epoch !== this.measurementEpoch || !Number.isInteger(bands) || bands < 1) return;
-    const sameWork = tiles === this.tiles && scale === this.scale;
+    if (!Number.isInteger(rows) || rows < 1) return;
+    const sameWork = tiles === this.tiles && scale === this.scale && rows === this.rows;
     // CPU and GPU measurements cover the complete submitted batch. Keep estimates
     // per band, including CPU overhead, before extrapolating to other tile sizes.
     if (Number.isFinite(cpuMs) && cpuMs >= 0) {
       this.rayCpuMs = smooth(this.rayCpuMs, cpuMs / bands);
-      if (sameWork) this.batchCpuWork = { tiles, scale };
+      if (sameWork) this.batchCpuWork = { tiles, scale, rows };
     }
     if (Number.isFinite(gpuMs) && gpuMs >= 0) {
       if (sameWork) {
-        if (this.batchGpuWork?.tiles !== tiles || this.batchGpuWork?.scale !== scale) this.batchGpuQueries = 0;
-        this.batchGpuWork = { tiles, scale };
+        if (this.batchGpuWork?.tiles !== tiles || this.batchGpuWork?.scale !== scale || this.batchGpuWork?.rows !== rows) this.batchGpuQueries = 0;
+        this.batchGpuWork = { tiles, scale, rows };
         this.batchGpuQueries++;
       }
-      this.rayGpuMs = smooth(this.rayGpuMs, gpuMs / bands * (tiles / this.tiles) ** 2 * (this.scale / scale) ** 2);
+      this.rayGpuMs = smooth(this.rayGpuMs, gpuMs / bands * rows / this.rows * (this.scale / scale) ** 2);
       const available = this.milliseconds - this.paintGpuMs - this.reserve;
       const predicted = (this.rayCpuMs + this.rayGpuMs) * 1.25;
       if (predicted > available) this.shrink();
       else if (sameWork && predicted * 4 < available && (this.tiles > 2 || this.scale < 1)) {
         // Observe at least a whole sample before changing tiling, and a longer
         // stable window before increasing target resolution and restarting it.
-        const observations = this.tiles > 2 ? Math.max(24, this.tiles ** 2) : 120;
+        const observations = this.tiles > 2 ? Math.max(24, this.rows) : 120;
         this.fastTiles += bands;
         if (this.fastTiles >= observations) {
+          const previousRows = this.rows, previousScale = this.scale;
           if (this.tiles > 2) this.tiles /= 2;
           else this.scale = Math.min(1, this.scale * 2);
-          this.rayGpuMs *= 4;
+          this.rayGpuMs *= (this.scale / previousScale) ** 2 * previousRows / this.rows;
           this.fastTiles = 0;
           this.resetBatchMeasurements();
         }
@@ -117,7 +135,7 @@ export class FrameBudget {
   }
   batch(now, pending = false) {
     if (!this.allows(now, pending)) return 0;
-    const current = work => work?.tiles === this.tiles && work?.scale === this.scale;
+    const current = work => work?.tiles === this.tiles && work?.scale === this.scale && work?.rows === this.rows;
     if (this.probeAllowed || this.batchGpuQueries < 2 || !current(this.batchGpuWork) || !current(this.batchCpuWork)) return 1;
     const perBand = Math.max(0.25, (this.rayCpuMs + this.rayGpuMs) * 1.25);
     return Math.max(1, Math.min(4, Math.floor(this.remaining / perBand)));

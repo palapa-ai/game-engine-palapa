@@ -3,6 +3,7 @@
 // configuration is unchanged, so the image it converges to is the archive's.
 import * as THREE from "./vendor/three.module.min.js";
 import { prepareTraceBackdrop } from "./trace-backdrop.mjs";
+import { scanlineRows } from "./scanline.mjs";
 import { normalizeTraceViewport, sameTraceViewport, traceViewportSize, applyTraceViewport } from "./trace-viewport.mjs";
 
 let modP = null;
@@ -99,8 +100,15 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   pt.lowResScale = 0.25;
   pt.fadeDuration = 900;
   // One renderSample() traces one tile, so more tiles = less work per frame.
-  const tileShape = divisions => cfg.scanline ? [1, divisions ** 2] : [divisions, divisions];
-  pt.tiles.set(...tileShape(cfg.tiles));
+  let divisions = cfg.tiles;
+  const syncTiles = () => {
+    const columns = cfg.scanline ? 1 : divisions;
+    const rows = cfg.scanline ? scanlineRows(divisions, pt.target.height) : divisions;
+    if (pt.tiles.x === columns && pt.tiles.y === rows) return false;
+    pt.tiles.set(columns, rows);
+    pt.reset();
+    return true;
+  };
   pt.synchronizeRenderSize = !viewport;
   pt.minSamples = 1;
   pt.filterGlossyFactor = 0.5;
@@ -108,9 +116,15 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   let adaptiveScale = cfg.initialScale ?? 1;
   pt.renderScale = clampRes(adaptiveScale * cfg.rtRes / cfg.fxRes);
   const syncViewportSize = () => {
-    if (!viewport) return;
-    const size = traceViewportSize(viewport, adaptiveScale * cfg.rtRes / cfg.fxRes, maxTex);
-    pt.setSize(size.width, size.height);
+    if (viewport) {
+      const size = traceViewportSize(viewport, adaptiveScale * cfg.rtRes / cfg.fxRes, maxTex);
+      pt.setSize(size.width, size.height);
+    } else if (cfg.scanline) {
+      // Also size legacy scanline targets before clamping their tile count.
+      renderer.getDrawingBufferSize(db);
+      pt.setSize(Math.max(1, Math.floor(db.x * pt.renderScale)), Math.max(1, Math.floor(db.y * pt.renderScale)));
+    }
+    syncTiles();
   };
   syncViewportSize();
   let bvh = null;
@@ -191,13 +205,11 @@ export async function attachTracer(renderer, scene, camera, cfg) {
       pt.bounces = bounces;
       pt.reset();
     },
-    setTiles(divisions) {
-      const [columns, rows] = tileShape(divisions);
-      if (pt.tiles.x === columns && pt.tiles.y === rows) return;
-      pt.tiles.set(columns, rows);
+    setTiles(value) {
+      divisions = value;
       // The vendor captures tile dimensions for a whole sample. Restarting
       // its task applies a smaller tile immediately after an overrun.
-      pt.reset();
+      syncTiles();
     },
     present() {
       const pause = pt.pausePathTracing, fade = pt.fadeDuration;
@@ -228,6 +240,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
     get viewport() { return viewport; },
     get bounces() { return pt.bounces; },
     get rows() { return pt.tiles.y; },
+    get divisions() { return divisions; },
     get scale() { return adaptiveScale; },
     get target() { return pt.target; },
     get compiling() { return !!pt.isCompiling; },

@@ -335,3 +335,52 @@ test('a ray query records its actual batch count and remains the only pending ra
   assert.equal(timer.busy, false);
   timer.dispose();
 });
+
+test('physical row limits govern work estimates after a resolution downgrade', () => {
+  const budget = new FrameBudget({ tiles: 32, maxTiles: 32, minScale: 1 / 64 });
+  budget.setViewportHeight(1152);
+  budget.scale = 0.125;
+  assert.equal(budget.rows, 144);
+  budget.rayGpuMs = 8;
+  assert.equal(budget.shrink(), true);
+  assert.equal(budget.scale, 0.0625);
+  assert.equal(budget.rows, 72);
+  assert.equal(budget.rayGpuMs, 4, 'a one-pixel band halves in width; its cost does not drop to one quarter');
+  assert.equal(budget.tiles, 32, 'requested divisions can remain while effective bands follow target height');
+});
+
+test('shrinking never creates empty bands when requested divisions already exceed physical rows', () => {
+  const budget = new FrameBudget({ tiles: 16, maxTiles: 32 });
+  budget.setViewportHeight(1152);
+  budget.scale = 0.125;
+  assert.equal(budget.rows, 144);
+  assert.equal(budget.shrink(), false, 'doubling requested divisions cannot make a one-pixel band smaller');
+  assert.equal(budget.tiles, 16);
+  assert.equal(budget.scale, 0.125);
+});
+
+test('actual band timing and completed pixel rows allow recovery without waiting on nonexistent tiles', () => {
+  const budget = new FrameBudget({ tiles: 32, maxTiles: 32 });
+  budget.setViewportHeight(1152);
+  budget.scale = 0.125;
+  for (let i = 0; i < 144; i++) budget.ray(0.1, 0.1, 32, 0.125, 1, budget.measurementEpoch, 144);
+  assert.equal(budget.tiles, 16, '144 useful bands are a full sample at this resolution');
+  assert.equal(budget.rows, 144);
+  assert.ok(budget.rayGpuMs < 0.2, 'halving divisions with the same effective rows must not quadruple the cost');
+});
+
+test('changing viewport height invalidates old queries and measured batching readiness', () => {
+  const budget = measuredBudget();
+  budget.begin(100);
+  assert.equal(budget.batch(100), 4);
+  const epoch = budget.measurementEpoch;
+  budget.setViewportHeight(3);
+  assert.equal(budget.rows, 3);
+  assert.equal(budget.batch(100), 1);
+  const cost = budget.rayGpuMs;
+  budget.ray(null, 100, 2, 1, 1, epoch, 4);
+  assert.equal(budget.rayGpuMs, cost);
+  budget.ray(0.1, 2, 2, 1, 1, budget.measurementEpoch, 3);
+  budget.ray(0.1, 2, 2, 1, 1, budget.measurementEpoch, 3);
+  assert.equal(budget.batch(100), 4);
+});

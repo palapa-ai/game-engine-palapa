@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Vector2, Vector4 } from '../runtime/hero/vendor/three.module.min.js';
 import { PathTracingRenderer } from '../runtime/hero/vendor/three-gpu-pathtracer.module.js';
+import { scanlineRows } from '../runtime/hero/scanline.mjs';
 
 // Run the vendor's actual tile scheduler without creating a WebGL context.
 // The fake draw calls evaluate the shader's weighted-alpha operation on pixels.
@@ -163,6 +164,20 @@ test('64 bands blend only two target areas per completed sample', () => {
   assert.equal(h.draws.filter(draw => draw.opacity === 0).length, 2, 'one carry-forward copy per pass');
   assert.equal(h.draws.reduce((sum, draw) => sum + draw.pixels, 0), 4 * 8 * 64);
   assert.ok(h.draws.filter(draw => draw.opacity !== 0).every(draw => draw.pixels === 8));
+});
+
+test('a 144-pixel preview clamps 1024 requested bands and completes without empty GPU draws', () => {
+  const rows = scanlineRows(32, 144);
+  assert.equal(rows, 144);
+  const h = harness({ width: 2, height: 144, rows });
+  for (let tile = 0; tile < rows; tile++) h.update();
+  assert.equal(h.tracer.samples, 1, 'one sample completes after 144 useful submissions, not 1024');
+  const bands = h.draws.filter(draw => draw.opacity !== 0);
+  assert.equal(bands.length, 144);
+  assert.ok(bands.every(draw => draw.pixels === 2), 'each band traces exactly one full pixel row');
+  for (let y = 0; y < h.height; y++) {
+    close(h.tracer.target.texture.data.subarray(y * h.width * 4), expected(1, 0, y), `pixel row ${y}`);
+  }
 });
 
 test('subframe blending samples the same full-target texture coordinates', () => {

@@ -4,6 +4,7 @@ import { scanlineCoverage } from './hero/scanline.mjs';
 import { ProgressiveTrace } from './hero/progressive-trace.mjs';
 import { ProgressiveResolution } from './hero/progressive-resolution.mjs';
 import { TraceReveal, TRACE_REVEAL_MS } from './hero/trace-reveal.mjs';
+import { traceSampleGoal, traceResolutionConfidence, canPreserveTrace } from './hero/trace-confidence.mjs';
 import { BackdropCache } from './hero/backdrop-cache.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
@@ -66,7 +67,8 @@ export function createPageScene(canvas, options = {}) {
       backdropMap: { value: backdropCache.target.texture }, backdropDepth: { value: backdropCache.target.depthTexture },
       traceMap: { value: staticTarget.texture }, traceBounds: { value: new THREE.Vector4(0, 0, 1, 1) }, traceCoverage: { value: 0 },
       traceReveal: { value: revealTexture }, traceTime: { value: 0 }, traceForeground: { value: true },
-      traceSamples: { value: 0 }, traceFadeSamples: { value: 4 }, tracePartialCoverage: { value: 0 },
+      traceSamples: { value: 0 }, traceFadeSamples: { value: 16 }, tracePartialCoverage: { value: 0 },
+      traceResolutionConfidence: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
     fragmentShader: `uniform sampler2D colorMap;
@@ -80,6 +82,7 @@ export function createPageScene(canvas, options = {}) {
       uniform float traceTime;
       uniform float traceSamples;
       uniform float traceFadeSamples;
+      uniform float traceResolutionConfidence;
       uniform float tracePartialCoverage;
       uniform bool traceForeground;
       varying vec2 vUv;
@@ -94,7 +97,7 @@ export function createPageScene(canvas, options = {}) {
           float firstResult = texture2D(traceReveal, vec2(0.5, traceUv.y)).r;
           float pass = floor(traceSamples + 0.000001);
           float samplesHere = pass + (tracePartialCoverage > 0. && traceUv.y >= 1. - tracePartialCoverage ? 1. : 0.);
-          float confidence = min(1., samplesHere / traceFadeSamples);
+          float confidence = traceResolutionConfidence * min(1., samplesHere / traceFadeSamples);
           float weight = firstResult < 0. ? 0. : confidence * smoothstep(0., ${TRACE_REVEAL_MS / 1000}, traceTime - firstResult);
           if (traceForeground) {
             bool foregroundPixel = traced.a > 0. || texture2D(depthMap, vUv).r < texture2D(backdropDepth, vUv).r;
@@ -183,7 +186,10 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceTargetBounces = String(qualityPass.target);
     canvas.dataset.sceneCount = '1';
     canvas.dataset.frameBudgetMs = String(budget.milliseconds);
-    canvas.dataset.traceTiles = `1×${budget.tiles ** 2}`;
+    canvas.dataset.traceTiles = `1×${tracer?.rows ?? budget.rows}`;
+    canvas.dataset.traceRequestedTiles = `1×${budget.tiles ** 2}`;
+    canvas.dataset.traceOpacityLimit = String(traceResolutionConfidence(tracer?.target, tracer?.viewport));
+    canvas.dataset.traceConfidenceSamples = String(traceSampleGoal(selectedSamples));
     canvas.dataset.traceScanline = String(staticMaterial.uniforms.traceCoverage.value);
     canvas.dataset.traceGpuTiming = timer.supported ? 'available' : 'unavailable';
     canvas.dataset.traceSkippedFrames = String(budget.skipped);
@@ -238,6 +244,7 @@ export function createPageScene(canvas, options = {}) {
     budget.maxTiles = 8;
     budget.resetQuality();
     budget.scale = 0.5;
+    budget.setViewportHeight(visible.height);
     collect();
     staticDirty = true;
     const tracingScene = scene.clone(true);
@@ -298,11 +305,18 @@ export function createPageScene(canvas, options = {}) {
     staticMaterial.uniforms.traceTime.value = time / 1000;
     staticMaterial.uniforms.traceSamples.value = traced ? tracer.samples : 0;
     staticMaterial.uniforms.tracePartialCoverage.value = traced ? scanlineCoverage(tracer.samples % 1, tracer.target.height, tracer.rows) : 0;
-    staticMaterial.uniforms.traceFadeSamples.value = Math.min(4, renderSettings.value.samples ?? AUTO_SAMPLES);
+    staticMaterial.uniforms.traceFadeSamples.value = traceSampleGoal(renderSettings.value.samples ?? AUTO_SAMPLES);
+    staticMaterial.uniforms.traceResolutionConfidence.value = traced ? traceResolutionConfidence(tracer.target, area) : 0;
     staticMaterial.uniforms.traceForeground.value = traceStage === 'foreground';
   };
   const preserve = (time = performance.now()) => {
-    if (!tracer || tracer.samples <= 0) return;
+    if (!tracer || !canPreserveTrace({
+      samples: tracer.samples,
+      selectedSamples: renderSettings.value.samples ?? AUTO_SAMPLES,
+      resolutionConfidence: traceResolutionConfidence(tracer.target, tracer.viewport),
+      qualitySettled: qualityPass.settled && tracer.bounces === qualityPass.target,
+      revealSettled: reveal.settled(time),
+    })) return;
     cacheStatic();
     composite(time);
     const next = (historyIndex + 1) % history.length;
@@ -349,7 +363,7 @@ export function createPageScene(canvas, options = {}) {
     budget.begin(time);
     for (const result of timer.poll()) {
       if (result.kind === 'paint') budget.paint(result.milliseconds);
-      else budget.ray(null, result.milliseconds, result.tiles, result.scale, result.bands, result.epoch);
+      else budget.ray(null, result.milliseconds, result.tiles, result.scale, result.bands, result.epoch, result.rows);
     }
     const delta = previous === null ? 0 : Math.min(0.05, (time - previous) / 1000);
     previous = time;
@@ -361,6 +375,7 @@ export function createPageScene(canvas, options = {}) {
         budget.maxTiles = 8;
         budget.resetQuality();
         budget.scale = 0.5;
+        budget.setViewportHeight(visible.height);
         tracer.setScale(budget.scale);
         tracer.setTiles(budget.tiles);
         tracer.setViewport(visible);
@@ -385,7 +400,7 @@ export function createPageScene(canvas, options = {}) {
       if (tracer && visible.width > 0 && visible.height > 0 && !building && !geometryDirty && phase !== 'complete' && !tracer.compiling) {
         // Apply measured workload changes before considering a resolution probe.
         // Otherwise a new probe can overwrite a downgrade from the GPU timer.
-        const workloadChanged = tracer.rows !== budget.tiles ** 2 || tracer.scale !== budget.scale;
+        const workloadChanged = tracer.divisions !== budget.tiles || tracer.scale !== budget.scale;
         if (workloadChanged) {
           preserve(time);
           tracer.setTiles(budget.tiles);
@@ -439,7 +454,8 @@ export function createPageScene(canvas, options = {}) {
           const remainingBands = Math.max(1, Math.round((Math.floor(previousSamples) + 1 - previousSamples) * tracer.rows));
           const bands = Math.min(reset ? 1 : batch, remainingBands);
           const epoch = budget.measurementEpoch;
-          timer.begin('ray', { tiles: divisions, scale: budget.scale, epoch });
+          const rows = tracer.rows;
+          timer.begin('ray', { tiles: divisions, scale: budget.scale, epoch, rows });
           let sampled, submittedBands = 0;
           try { sampled = tracer.sample(bands, { present: false }); }
           finally {
@@ -451,7 +467,7 @@ export function createPageScene(canvas, options = {}) {
             canvas.dataset.traceFirstSampleAt ||= String(resultTime);
             if (reveal.observe(tracer.samples, resultTime)) revealTexture.needsUpdate = true;
             budget.submitted();
-            if (previousSamples > 0) budget.ray(performance.now() - started, null, divisions, tracer.scale, submittedBands, epoch);
+            if (previousSamples > 0) budget.ray(performance.now() - started, null, divisions, tracer.scale, submittedBands, epoch, rows);
           }
           if (!sampled) throw Error('Page ray tracing unavailable');
           dirty = true;
