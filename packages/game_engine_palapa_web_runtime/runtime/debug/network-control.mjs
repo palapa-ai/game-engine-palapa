@@ -3,18 +3,16 @@ import { networkProfile, networkProfiles } from './network.mjs';
 export async function createNetworkControl(workerUrl) {
   const element = document.createElement('div');
   element.style.cssText = 'position:fixed;top:12px;right:12px;z-index:100;background:#151515;color:white;padding:10px;font:12px ui-monospace,monospace';
-  const label = document.createElement('label');
-  label.textContent = 'Network ';
   const select = document.createElement('select');
   select.style.cssText = 'font:inherit;color:white;background:#282828;padding:6px;border:1px solid #555;max-width:100%';
   select.setAttribute('aria-label', 'Simulated network');
-  select.title = 'Reloads with simulated download speed, latency and interruptions. High speed removes the simulation.';
+  select.title = 'Reloads with simulated download speed, latency and interruptions. Broadband removes the simulation.';
   for (const [key, profile] of Object.entries(networkProfiles)) {
     const option = document.createElement('option');
     option.value = key; option.textContent = profile.label; select.append(option);
   }
   select.value = networkProfile(location.href);
-  label.append(select); element.append(label); document.body.append(element);
+  element.append(select); document.body.append(element);
   select.disabled = true;
   select.addEventListener('change', () => {
     const url = new URL(location.href);

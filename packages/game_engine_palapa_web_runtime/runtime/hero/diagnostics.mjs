@@ -1,5 +1,6 @@
 import { renderSettings } from './render-settings.mjs';
 import { RayStatistics } from './ray-statistics.mjs';
+import { traceProgress } from './trace-progress.mjs';
 
 export function createFrameCounter(element) {
   let frame = 0, count = 0, start = performance.now();
@@ -96,9 +97,16 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
     root.getElementById('spp').textContent = enabled.map(trace => {
       const samples = trace.source?.samples ?? 0;
       const value = samples > 0 && samples < 1 ? samples.toFixed(2) : Math.floor(samples);
-      return `${value} spp${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
+      const data = trace.source?.renderer?.domElement?.dataset ?? {};
+      const { percent, refining } = traceProgress({
+        samples, targetSamples: Number(data.traceTargetSamples), state: trace.source?.state,
+        stage: data.traceStage, scale: Number(data.traceResolutionScale),
+        bounces: Number(data.traceBounces), targetBounces: Number(data.traceTargetBounces),
+        meshCount: Number(data.traceMeshCount),
+      });
+      return `${percent}% · ${value} spp${refining ? ' · refining' : ''}${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
     }).join('\n');
-    root.getElementById('spp').title = 'Accumulated samples per pixel at the current resolution in each enabled world. Scene, camera, and quality changes restart accumulation; total camera rays keep counting.';
+    root.getElementById('spp').title = 'Progress toward each enabled world’s final sample target (Auto: 64 spp), at the selected bounces and resolution within the canvas limits. Preview passes show 0% while refining; 100% waits for the finished image. Scene, camera, visible area, and quality changes restart progress. Total camera rays keep counting.';
   };
   const timer = setInterval(read, 250);
   read();

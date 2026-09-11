@@ -12,7 +12,7 @@ test('parallel downloads share a connection budget, with dial-up slower than 3G'
   assert.ok(waits.at(-1) < 100);
 });
 
-test('intermittent profile can stall and fail, while high speed and unknown profiles pass through', async () => {
+test('intermittent profile can stall and fail, while broadband and unknown profiles pass through', async () => {
   const waits = [];
   const budget = new NetworkBudget({ now: () => 0, sleep: async ms => waits.push(ms), random: () => 0 });
   await assert.rejects(budget.request(networkProfiles.intermittent), /interruption/);

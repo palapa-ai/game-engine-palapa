@@ -1,5 +1,5 @@
 export const networkProfiles = Object.freeze({
-  fast: { label: 'High speed', bitsPerSecond: Infinity, latency: 0 },
+  fast: { label: 'Broadband', bitsPerSecond: Infinity, latency: 0 },
   dialup: { label: 'Dial-up', bitsPerSecond: 56000, latency: 350 },
   '3g': { label: '3G', bitsPerSecond: 750000, latency: 200 },
   intermittent: { label: 'Intermittent 3G', bitsPerSecond: 350000, latency: 450, jitter: 300, failure: 0.08, stall: 0.12 },
