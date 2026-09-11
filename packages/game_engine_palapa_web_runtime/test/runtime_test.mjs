@@ -231,3 +231,20 @@ test('white text can retain white luminance without changing colored accents', (
   assert.equal(materials[1].color.getHex(),0xff66cc);
   group.traverse(object => {object.geometry?.dispose();object.material?.dispose();});
 });
+
+test('justified paragraphs fill each wrapped line and do not create empty geometry for spacing', () => {
+  const font = new FontLoader().parse({ resolution: 1000, boundingBox: { yMin: 0, yMax: 1000 }, underlineThickness: 50,
+    glyphs: { '?': { ha: 700, o: 'm 0 0 l 0 1000 l 600 1000 l 600 0 l 0 0' }, ' ': { ha: 350, o: '' } } });
+  const content = { inset: 12, paragraphs: [{ spans: [{ text: 'one two three four five six seven eight nine', color: 0xffffff }], size: 16, alignment: 'justify' }] };
+  const { group, layout } = buildTextGroup(font, content, 250);
+  const lines = Map.groupBy(layout.entries, entry => entry.baseline);
+  const values = [...lines.values()];
+  for (const line of values.slice(0, -1)) {
+    assert.equal(line[0].x, 12);
+    const last = line.at(-1);
+    assert.ok(Math.abs(last.x + last.width - 238) < 1e-8);
+  }
+  group.traverse(mesh => {
+    if (mesh.geometry) assert.ok(mesh.geometry.attributes.position.count > 0);
+  });
+});

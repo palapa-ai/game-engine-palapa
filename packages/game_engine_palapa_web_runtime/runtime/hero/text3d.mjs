@@ -224,7 +224,7 @@ export function buildTextGroup(font, definition, width) {
           -entry.top - entry.size / 2, front - depth / 2);
         mesh.userData.traceRole = 'content';
         group.add(mesh);
-      } else {
+      } else if (entry.text.trim()) {
         const item = word(font, entry.text, entry.color, entry.size, content.preserveWhite);
         item.mesh.position.set(-width / 2 + entry.x, -entry.baseline, front - entry.size * 0.2);
         group.add(item.mesh);
