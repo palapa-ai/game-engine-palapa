@@ -44,8 +44,8 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
   const buttons = [...root.querySelectorAll('[data-setting]')];
   const sync = () => buttons.forEach(button => {
     const key = button.dataset.setting, value = renderSettings.value[key];
-    button.textContent = key === 'resolution' ? `${value * 100}% resolution` : `${value ?? 'Auto'} ${key}`;
-    button.title = key === 'samples' ? 'Samples per pixel. Auto uses 64. Click to cycle.' : 'Click to cycle. Shift-click to go back.';
+    button.textContent = key === 'resolution' ? `${value * 100}% resolution` : key === 'samples' ? value === null ? 'Auto · 64 spp' : `${value} spp` : `${value} ${key}`;
+    button.title = key === 'samples' ? 'Auto targets 64 samples per pixel, using spare frame time to keep interaction responsive. Click to cycle.' : key === 'resolution' ? 'Current tracing size → selected maximum. Rendering starts smaller and adjusts to available GPU time. Percentages apply to both width and height.' : 'Click to cycle. Shift-click to go back.';
   });
   buttons.forEach(button => button.addEventListener('click', event => {
     const key = button.dataset.setting, values = choices[key];
@@ -61,7 +61,7 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
   sync();
   const fps = createFrameCounter(root.getElementById('fps'));
   const statistics = new RayStatistics([source, ...traces.map(trace => trace.source)]);
-  const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+  const number = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
   root.getElementById('rays').title = 'Primary camera rays submitted since this page opened, across both tracing worlds and scene rebuilds. Bounce and shadow rays are not counted.';
   root.getElementById('rate').title = 'Primary camera rays submitted per second of elapsed time, updated every second.';
   root.getElementById('download').title = 'Time spent fetching the page and startup resources before the page reveal, including request latency and cache reads. Simultaneous requests count once; gaps spent setting up and rendering are excluded.';
@@ -82,12 +82,12 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
     const resolution = renderSettings.value.resolution * 100;
     const currentResolution = resolution * Number(data.traceResolutionScale || 1);
     root.querySelector('[data-setting="resolution"]').textContent = currentResolution < resolution
-      ? `${Number(currentResolution.toFixed(1))} → ${resolution}% resolution` : `${resolution}% resolution`;
+      ? `${Number(currentResolution.toFixed(1))}% → ${resolution}% resolution` : `${resolution}% resolution`;
     root.querySelector('[data-setting="bounces"]').textContent = active && active < target
       ? `${active} → ${target} bounces` : `${target} bounces`;
     const { total, perSecond } = statistics.read();
     root.getElementById('rays').textContent = `${number.format(total)} total rays`;
-    root.getElementById('rate').textContent = `${number.format(perSecond)} camera rays/s`;
+    root.getElementById('rate').textContent = `${number.format(perSecond)} rays/s`;
     const status = enabled.length === 0 ? 'Ray tracing off'
       : enabled.some(trace => trace.source?.state === 'fallback') ? 'Ray tracing unavailable'
       : enabled.some(trace => ['starting', 'loading'].includes(trace.source?.state)) ? 'Preparing ray tracing…' : '';
@@ -96,7 +96,7 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
     root.getElementById('spp').textContent = enabled.map(trace => {
       const samples = trace.source?.samples ?? 0;
       const value = samples > 0 && samples < 1 ? samples.toFixed(2) : Math.floor(samples);
-      return `${value} samples per pixel${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
+      return `${value} spp${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
     }).join('\n');
     root.getElementById('spp').title = 'Accumulated samples per pixel at the current resolution in each enabled world. Scene, camera, and quality changes restart accumulation; total camera rays keep counting.';
   };

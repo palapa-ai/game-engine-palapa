@@ -111,3 +111,37 @@ test('coarse or unfinished text never replaces the readable raster at full opaci
     if (scale < 1) assert.ok(limit < 1);
   }
 });
+
+test('multi-material meshes retain every face material without shifting later textures or colors', async () => {
+  const { PathTracingSceneGenerator } = await import('../runtime/hero/vendor/three-gpu-pathtracer.module.js');
+  const scene = new THREE.Scene();
+  const materials = [0xff0000, 0x00ff00, 0x0000ff].map(color => new THREE.MeshStandardMaterial({ color }));
+  materials[2].map = new THREE.Texture();
+  const striped = new THREE.Mesh(new THREE.PlaneGeometry(), materials.slice(0, 2));
+  striped.geometry.clearGroups();
+  striped.geometry.addGroup(0, 3, 0);
+  striped.geometry.addGroup(3, 3, 1);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(), materials[2]);
+  flag.position.x = 3;
+  scene.add(striped, flag);
+  for (let rebuild = 0; rebuild < 3; rebuild++) {
+    const trace = cloneTraceScene(scene, 'scene');
+    trace.scene.updateMatrixWorld(true);
+    const generator = new PathTracingSceneGenerator(trace.scene);
+    const result = generator.generate();
+    const { geometry, materials: assigned } = result;
+    const p = geometry.attributes.position, ids = geometry.attributes.materialIndex;
+    for (let index = 0; index < geometry.index.count; index += 3) {
+      const corners = [0, 1, 2].map(corner => geometry.index.getX(index + corner));
+      const x = corners.reduce((sum, corner) => sum + p.getX(corner), 0) / 3;
+      const y = corners.reduce((sum, corner) => sum + p.getY(corner), 0) / 3;
+      const expected = x > 2 ? materials[2] : y > 0 ? materials[0] : materials[1];
+      corners.forEach(corner => assert.equal(assigned[ids.getX(corner)], expected));
+    }
+    assert.equal(assigned.find(material => material === materials[2]).map, materials[2].map);
+    assert.equal(trace.meshes, 3);
+    assert.equal(striped.geometry.groups.length, 2);
+    trace.dispose();
+    geometry.dispose();
+  }
+});

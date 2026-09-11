@@ -257,7 +257,7 @@ export function createPageScene(canvas, options = {}) {
     budget.setViewportHeight(visible.height);
     collect();
     staticDirty = true;
-    const { scene: tracingScene, meshes } = cloneTraceScene(scene, settings.value.traceMode);
+    const { scene: tracingScene, meshes, dispose: releaseTraceGeometry } = cloneTraceScene(scene, settings.value.traceMode);
     canvas.dataset.traceMeshCount = String(meshes);
     phase = 'loading';
     canvas.dataset.traceStartedAt = String(performance.now());
@@ -288,6 +288,7 @@ export function createPageScene(canvas, options = {}) {
     } catch (error) {
       if (!disposed && version === revision) fail(error);
     } finally {
+      releaseTraceGeometry();
       building = false;
       dirty = true;
       status();

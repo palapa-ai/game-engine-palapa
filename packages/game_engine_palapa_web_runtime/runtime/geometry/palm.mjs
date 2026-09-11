@@ -5,15 +5,15 @@ export function createPalm({
   fronds = 10, length = 1, width = 0.18, rise = 0.4, droop = 0.65,
   yaw = 0, spread = 1, style = 'blade', coconuts = 3, seed = 1,
   leaves = '#65aa24', trunk = '#a27a49', bark = 'rings', notches = 0,
-  facets = [], canopyScale = 1, cluster = 0, clusterColor = '#743807', clusterAccent = null,
+  facets = [], canopyScale = 1, canopyDepth = 0, cluster = 0, clusterColor = '#743807', clusterAccent = null,
   barkColors = ['#743800', trunk, '#e2c12d', '#8a5502'],
 } = {}) {
-  const values = [height, lean, bend, thickness, length, width, rise, droop, yaw, spread, seed, canopyScale, cluster];
+  const values = [height, lean, bend, thickness, length, width, rise, droop, yaw, spread, seed, canopyScale, canopyDepth, cluster];
   if (values.some(value => !Number.isFinite(value)) || height <= 0 || thickness <= 0 || length <= 0 || width <= 0 || spread <= 0 ||
       !Number.isInteger(rings) || rings < 2 || rings > 32 || !Number.isInteger(fronds) || fronds < 3 || fronds > 24 ||
       !Number.isInteger(coconuts) || coconuts < 0 || coconuts > 8 || !['blade', 'feather', 'fan', 'crest'].includes(style) ||
       !['rings', 'checks', 'stripes'].includes(bark) || !Number.isInteger(notches) || notches < 0 || notches > 6 ||
-      canopyScale <= 0 || cluster < 0 || !Array.isArray(facets) || facets.some(face =>
+      canopyScale <= 0 || canopyDepth < 0 || cluster < 0 || !Array.isArray(facets) || facets.some(face =>
         !Array.isArray(face.points) || face.points.length < 3 || face.points.some(point =>
           !Array.isArray(point) || point.length !== 3 || point.some(value => !Number.isFinite(value))))) {
     throw RangeError('Invalid palm shape');
@@ -84,7 +84,7 @@ export function createPalm({
         return sum + point.x * next.y - next.x * point.y;
       }, 0);
       if (area < 0) points.reverse();
-      const back = points.map(point => point.clone().add(new THREE.Vector3(0, 0, -0.035 * canopyScale)));
+      const back = points.map(point => point.clone().add(new THREE.Vector3(0, 0, -Math.max(0.035, canopyDepth * 0.08) * canopyScale)));
       const color = new THREE.Color(face.color || leaves), edge = color.clone().multiplyScalar(0.7);
       for (let i = 1; i < points.length - 1; i++) {
         triangle(points[0], points[i], points[i + 1], color);
@@ -94,6 +94,27 @@ export function createPalm({
         const next = (i + 1) % points.length;
         triangle(points[i], back[i], points[next], edge);
         triangle(points[next], back[i], back[next], edge);
+      }
+    }
+    // Folded front and rear fronds give the crown a silhouette from the side,
+    // while the authored faces retain its recognizable outline from the front.
+    for (const direction of [-1, 1]) {
+      if (!canopyDepth) break;
+      const points = [[0, 0, 0, 0], [0.08, 0.85, 0.38, 0.38], [0.16, 0.42, 0.76, 0.43], [0.2, -0.85, 1, 0]];
+      let previous;
+      for (const [x, y, z, breadth] of points) {
+        const center = crown.clone().add(new THREE.Vector3(x, y, z * canopyDepth * direction).multiplyScalar(canopyScale));
+        const row = [center.clone().add(new THREE.Vector3(-breadth * canopyScale, 0, 0)),
+          center.clone().add(new THREE.Vector3(0, breadth * canopyScale * 0.5, 0)),
+          center.clone().add(new THREE.Vector3(breadth * canopyScale, 0, 0)),
+          center.clone().add(new THREE.Vector3(0, -breadth * canopyScale * 0.3, 0))];
+        if (previous) for (let side = 0; side < 4; side++) {
+          const next = (side + 1) % 4;
+          const color = new THREE.Color(side === 0 ? '#8bef00' : side === 1 ? '#51b000' : '#086200');
+          triangle(previous[side], row[side], previous[next], color);
+          triangle(row[side], row[next], previous[next], color);
+        }
+        previous = row;
       }
     }
   } else if (style === 'crest') {

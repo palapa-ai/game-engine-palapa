@@ -168,8 +168,15 @@ export function layoutDocument(font, paragraphs, width, inset = 0) {
       lines = wrappedLines(font, spans, size, measure);
     }
 
-    lines.forEach((segments) => {
+    lines.forEach((segments, lineIndex) => {
+      if (alignment === "justify" && lineIndex < lines.length - 1) {
+        segments = segments.flatMap(segment => segment.text.split(/( +)/u).filter(Boolean)
+          .map(text => ({ ...segment, text, width: em(font, text) * size })));
+      }
       const ink = segments.reduce((sum, segment) => sum + segment.width, 0);
+      const spaces = alignment === "justify" && lineIndex < lines.length - 1
+        ? segments.filter(segment => /^ +$/.test(segment.text)).length : 0;
+      const extraSpace = spaces ? Math.max(0, measure - ink) / spaces : 0;
       let x = margin;
       if (alignment === "center" || (alignment === "split" && !split)) {
         x += (measure - ink) / 2;
@@ -181,7 +188,7 @@ export function layoutDocument(font, paragraphs, width, inset = 0) {
       segments.forEach((segment, segmentIndex) => {
         if (split && segmentIndex === 1) x = width - margin - tailWidth;
         entries.push({ ...segment, size, x, baseline, paragraphIndex });
-        x += segment.width + (split ? gap : 0);
+        x += segment.width + (split ? gap : /^ +$/.test(segment.text) ? extraSpace : 0);
       });
       height = baseline + size * 0.3 + 0.1 * worldPixel;
       baseline += size * LINE;
