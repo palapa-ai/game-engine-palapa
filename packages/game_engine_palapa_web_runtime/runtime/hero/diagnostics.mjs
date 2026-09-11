@@ -89,7 +89,7 @@ export function createDiagnostics(element, source, { traces = [] } = {}) {
     root.getElementById('spp').textContent = enabled.map(trace => {
       const samples = trace.source?.samples ?? 0;
       const value = samples > 0 && samples < 1 ? samples.toFixed(2) : Math.floor(samples);
-      return `${value} spp${trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
+      return `${value} samples per pixel${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
     }).join('\n');
     root.getElementById('spp').title = 'Accumulated samples per pixel at the current resolution in each enabled world. Scene, camera, and quality changes restart accumulation; total camera rays keep counting.';
   };
