@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { traceProgress } from '../runtime/hero/trace-progress.mjs';
+import { traceProgress, traceProgressText } from '../runtime/hero/trace-progress.mjs';
 
 const finalPass = { samples: 2, targetSamples: 64, state: 'tracing', stage: 'background', scale: 1, bounces: 4, targetBounces: 4, meshCount: 10 };
 
@@ -63,4 +63,28 @@ test('invalid or missing sample goals cannot claim completion', () => {
   for (const samples of [-1, NaN, Infinity, undefined]) {
     assert.equal(traceProgress({ ...finalPass, state: 'complete', samples }).percent, 0);
   }
+});
+
+
+test('shared scene progress appears once with either or both visibility controls enabled', () => {
+  const source = { samples: 0.06, state: 'tracing' };
+  const bricks = { source, label: 'Ray trace bricks' };
+  const content = { source, label: 'Ray trace content' };
+  for (const enabled of [[bricks, content], [bricks], [content]]) {
+    assert.equal(traceProgressText(enabled), '0% · 0.06 spp · refining');
+  }
+  assert.equal(traceProgressText([]), '');
+});
+
+test('distinct renderers retain separate progress and labels even with identical values', () => {
+  const sources = Array.from({ length: 2 }, () => ({
+    samples: 32, state: 'tracing', renderer: { domElement: { dataset: {
+      traceTargetSamples: '64', traceStage: 'text', traceResolutionScale: '1',
+      traceBounces: '4', traceTargetBounces: '4', traceMeshCount: '10',
+    } } },
+  }));
+  const traces = sources.map((source, index) => ({ source, label: `Ray trace ${['bricks', 'content'][index]}` }));
+  assert.equal(traceProgressText(traces), '50% · 32 spp · bricks\n50% · 32 spp · content');
+  sources[1].samples = 16;
+  assert.equal(traceProgressText(traces), '50% · 32 spp · bricks\n25% · 16 spp · content');
 });

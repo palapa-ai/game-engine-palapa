@@ -1,6 +1,6 @@
 import { renderSettings } from './render-settings.mjs';
 import { RayStatistics } from './ray-statistics.mjs';
-import { traceProgress } from './trace-progress.mjs';
+import { traceProgressText } from './trace-progress.mjs';
 import { traceStatus } from './trace-failure.mjs';
 
 export function createFrameCounter(element, source) {
@@ -89,18 +89,7 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
     const status = traceStatus(enabled);
     root.getElementById('trace').hidden = !status;
     root.getElementById('trace').textContent = status;
-    root.getElementById('spp').textContent = enabled.map(trace => {
-      const samples = trace.source?.samples ?? 0;
-      const value = samples > 0 && samples < 1 ? samples.toFixed(2) : Math.floor(samples);
-      const data = trace.source?.renderer?.domElement?.dataset ?? {};
-      const { percent, refining } = traceProgress({
-        samples, targetSamples: Number(data.traceTargetSamples), state: trace.source?.state,
-        stage: data.traceStage, scale: Number(data.traceResolutionScale),
-        bounces: Number(data.traceBounces), targetBounces: Number(data.traceTargetBounces),
-        meshCount: Number(data.traceMeshCount),
-      });
-      return `${percent}% · ${value} spp${refining ? ' · refining' : ''}${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
-    }).join('\n');
+    root.getElementById('spp').textContent = traceProgressText(enabled);
     root.getElementById('spp').title = 'Progress toward the shared scene’s final sample target (Auto: 64 spp), at the selected bounces and resolution within the canvas limits. Preview passes show 0% while refining; 100% waits for the finished image. Scene, camera, visible area, and quality changes restart progress. Total camera rays keep counting.';
   };
   const timer = setInterval(read, 250);
