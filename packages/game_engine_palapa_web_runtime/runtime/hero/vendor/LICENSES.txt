@@ -1,7 +1,7 @@
 Third-party code vendored into this directory, with the licence each ships under.
 
 three 0.164.1 - MIT - three.module.min.js, FontLoader.js, TextGeometry.js, Pass.js,
-  LineSegments2.js, LineSegmentsGeometry.js, LineMaterial.js
+  LineSegments2.js, LineSegmentsGeometry.js, LineMaterial.js, TeapotGeometry.js
 Helvetiker - MgOpen (free, permissive) - ../helvetiker_regular.typeface.json,
   ../helvetiker_bold.typeface.json,
   three's own examples/fonts copy; its licence text travels inside the file
