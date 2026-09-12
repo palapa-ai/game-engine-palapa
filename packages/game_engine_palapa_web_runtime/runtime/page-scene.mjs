@@ -160,6 +160,7 @@ export function createPageScene(canvas, options = {}) {
   let width = 0, height = 0, ratio = 1;
   let frame = 0, previous = null, tracer = null;
   let disposed = false, building = false, geometryDirty = true, dirty = true;
+  let buildController = null;
   let revision = 0, phase = 'starting', firstFrame = false;
   let traceStage = nextTraceStage();
   let dynamicRoots = [], staticMeshes = [], foregroundMeshes = [];
@@ -235,6 +236,7 @@ export function createPageScene(canvas, options = {}) {
     if (!frame && !disposed && contextAvailable && !document.hidden && width && height) frame = requestAnimationFrame(draw);
   };
   const fail = error => {
+    buildController?.abort(error);
     traceEnabled = false;
     geometryDirty = false;
     tracer?.dispose(); tracer = null;
@@ -265,6 +267,8 @@ export function createPageScene(canvas, options = {}) {
     building = true;
     geometryDirty = false;
     const version = revision;
+    const controller = new AbortController();
+    buildController = controller;
     tracer?.dispose(); tracer = null;
     traceHistory.reset();
     traceStage = nextTraceStage();
@@ -295,6 +299,7 @@ export function createPageScene(canvas, options = {}) {
         return;
       }
       const next = await attachTracer(renderer, tracingScene, camera, {
+        signal: controller.signal,
         bounces: qualityPass.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles, initialScale: budget.scale,
         dynamicLowRes: false, renderDelay: 0, scanline: true, viewport: visible,
         foregroundOnly: settings.value.traceMode === 'scene' && settings.value.enabled,
@@ -310,9 +315,10 @@ export function createPageScene(canvas, options = {}) {
         phase = 'tracing';
       }
     } catch (error) {
-      if (!disposed && version === revision) fail(error);
+      if (!controller.signal.aborted && !disposed && version === revision) fail(error);
     } finally {
       releaseTraceGeometry();
+      if (buildController === controller) buildController = null;
       building = false;
       dirty = true;
       status();
@@ -540,6 +546,7 @@ export function createPageScene(canvas, options = {}) {
       staticDirty = true;
     }
     if (change.geometry !== false && !change.dynamic) {
+      buildController?.abort();
       revision++;
       traceEnabled = tracing();
       geometryDirty = traceEnabled;
@@ -566,6 +573,7 @@ export function createPageScene(canvas, options = {}) {
     invalidate();
   };
   const qualityChanged = () => {
+    buildController?.abort();
     revision++;
     traceEnabled = tracing();
     geometryDirty = traceEnabled;
@@ -660,6 +668,7 @@ export function createPageScene(canvas, options = {}) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      buildController?.abort();
       revision++;
       cancelAnimationFrame(frame);
       callbacks.clear();
