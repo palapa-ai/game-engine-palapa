@@ -148,27 +148,34 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
 
   const meridian = root.getObjectByName('antique-globe-meridian');
   for (const style of ['black and white', 'antique', 'photorealistic']) {
+    const before = geometryChanges;
+    const wasVisible = meridian.visible;
     anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'g' }));
     assert.ok(anchor['aria-label'].includes(`Globe: ${style}.`));
     assert.equal(meridian.visible, style === 'antique');
-    assert.equal(geometryChanges, initialChanges, 'globe style changes must preserve the static page trace');
+    assert.equal(geometryChanges, before + Number(wasVisible !== meridian.visible), 'only mounting visibility changes rebuild its shadows');
   }
+  const afterStyleChanges = geometryChanges;
+  const globeOccluder = root.getObjectByName('sphere-shadow-occluder');
+  assert.ok(globeOccluder.position.equals(globe.position));
+  assert.ok(globeOccluder.scale.equals(globe.scale));
+  assert.notEqual(globeOccluder.userData.dynamic, true);
 
   const next = () => anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Enter' }));
   next();
   assert.equal(table.userData.dynamic, true);
-  assert.equal(geometryChanges, initialChanges + 1, 'exclude the table at transition start');
+  assert.equal(geometryChanges, afterStyleChanges + 1, 'exclude the table at transition start');
   advance(5);
-  assert.equal(geometryChanges, initialChanges + 1, 'transition frames only update dynamic geometry');
+  assert.equal(geometryChanges, afterStyleChanges + 1, 'transition frames only update dynamic geometry');
   advance(10);
   assert.equal(table.userData.dynamic, false);
   assert.equal(table.children[0].visible, false);
   assert.equal(table.children[0].userData.dynamic, true);
   assert.equal(table.children[1].visible, true);
   assert.equal(table.children[1].userData.dynamic, false);
-  assert.equal(geometryChanges, initialChanges + 2, 'retrace once when the new page settles');
+  assert.equal(geometryChanges, afterStyleChanges + 2, 'retrace once when the new page settles');
   advance(20);
-  assert.equal(geometryChanges, initialChanges + 2);
+  assert.equal(geometryChanges, afterStyleChanges + 2);
 
   next();
   media.matches = true;
@@ -176,26 +183,26 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
   assert.equal(table.userData.dynamic, false, 'reduced motion settles an in-flight transition');
   assert.equal(table.children[0].visible, true);
   assert.equal(callbacks.size, 0);
-  assert.equal(geometryChanges, initialChanges + 4);
+  assert.equal(geometryChanges, afterStyleChanges + 4);
   next();
   assert.equal(table.children[1].visible, true);
   assert.equal(table.userData.dynamic, false);
-  assert.equal(geometryChanges, initialChanges + 5, 'a reduced-motion page change retraces once');
+  assert.equal(geometryChanges, afterStyleChanges + 5, 'a reduced-motion page change retraces once');
 
   control.resize(640, 700, 2, true, 12);
-  assert.equal(geometryChanges, initialChanges + 5);
+  assert.equal(geometryChanges, afterStyleChanges + 5);
   bounds.top -= 40;
   hostBounds.top -= 40;
   globalThis.scrollY += 40;
   control.resize(640, 700, 2, true, 12);
-  assert.equal(geometryChanges, initialChanges + 5, 'scrolling does not change document-space geometry');
+  assert.equal(geometryChanges, afterStyleChanges + 5, 'scrolling does not change document-space geometry');
   bounds.top += 20;
   control.resize(640, 700, 2, true, 12);
-  assert.equal(geometryChanges, initialChanges + 6, 'a real anchor movement updates the static table');
+  assert.equal(geometryChanges, afterStyleChanges + 6, 'a real anchor movement updates the static table');
   control.resize(640, 700, 1, true, 12);
-  assert.equal(geometryChanges, initialChanges + 6, 'pixel ratio changes do not change scene geometry');
+  assert.equal(geometryChanges, afterStyleChanges + 6, 'pixel ratio changes do not change scene geometry');
   control.resize(640, 700, 1, false, 12);
-  assert.equal(geometryChanges, initialChanges + 7, 'responsive layout changes retrace once');
+  assert.equal(geometryChanges, afterStyleChanges + 7, 'responsive layout changes retrace once');
   control.dispose();
   assert.equal(groups.length, 0);
   assert.equal(callbacks.size, 0);

@@ -10,16 +10,19 @@ import { BackdropCache } from './hero/backdrop-cache.mjs';
 import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
 import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
+import { FrameCadence } from './hero/frame-cadence.mjs';
+import { createMoonlight, enableSceneShadows } from './hero/scene-lighting.mjs';
 import { cloneTraceScene, traceForeground, traceRoles, traceStageFor } from './hero/trace-scene.mjs';
 
 const MAX_PIXELS = 3000000;
 const AUTO_SAMPLES = 64;
+const SKY_TOP = 0xeaf3ff, SKY_BOTTOM = 0x9daec7;
 
 // Broad reflected light for moving metal, matching the static tracer's sky.
 // Build and prefilter once; animated frames only sample the resulting texture.
 function softEnvironment(renderer) {
   const width = 64, height = 32, data = new Float32Array(width * height * 4);
-  const top = new THREE.Color(0xd8d8d8), bottom = new THREE.Color(0xb8b8b8), color = new THREE.Color();
+  const top = new THREE.Color(SKY_TOP), bottom = new THREE.Color(SKY_BOTTOM), color = new THREE.Color();
   for (let y = 0; y < height; y++) {
     const weight = ((1 - Math.cos(Math.PI * y / (height - 1))) / 2) ** 2;
     color.copy(bottom).lerp(top, weight);
@@ -38,19 +41,28 @@ function softEnvironment(renderer) {
 
 export function createPageScene(canvas, options = {}) {
   const settings = options.settings ?? renderSettings;
+  const backdropSettings = options.backdropSettings ?? settings;
+  const tracing = () => settings.value.enabled || backdropSettings.value.enabled;
+  const nextTraceStage = hasBackdrop => traceStageFor(settings.value.traceMode, hasBackdrop, settings.value.enabled);
   void preloadTracer().catch(() => {});
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setClearColor(0x000000, 0);
   renderer.localClippingEnabled = true;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
   const scene = new THREE.Scene();
   const environment = softEnvironment(renderer);
   scene.environment = environment.texture;
   const camera = new THREE.OrthographicCamera(-1, 1, 0, -1, 0.1, 10000);
   camera.position.z = 2000;
-  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b8b8, 0.7));
+  scene.add(new THREE.AmbientLight(0xeaf3ff, 0.65));
+  scene.add(new THREE.HemisphereLight(SKY_TOP, SKY_BOTTOM, 0.85));
+  const moonlight = createMoonlight(scene, { mapSize: Math.min(4096, renderer.capabilities.maxTextureSize) });
+  const shadowResources = new Set();
 
   const budget = new FrameBudget({ tiles: 2, maxTiles: 8 });
+  const cadence = new FrameCadence(60);
   budget.scale = 0.5;
   let cameraRays = 0;
   let qualityPass = new ProgressiveTrace(settings.value.bounces);
@@ -72,6 +84,7 @@ export function createPageScene(canvas, options = {}) {
       traceMap: { value: staticTarget.texture }, traceBounds: { value: new THREE.Vector4(0, 0, 1, 1) }, traceCoverage: { value: 0 },
       traceReveal: { value: revealTexture }, traceTime: { value: 0 }, traceForeground: { value: true },
       traceTextOnly: { value: settings.value.traceMode === 'text' },
+      traceContentEnabled: { value: settings.value.enabled }, traceBackdropEnabled: { value: backdropSettings.value.enabled },
       traceSamples: { value: 0 }, traceFadeSamples: { value: 16 }, tracePartialCoverage: { value: 0 },
       traceResolutionConfidence: { value: 0 },
     },
@@ -91,6 +104,8 @@ export function createPageScene(canvas, options = {}) {
       uniform float tracePartialCoverage;
       uniform bool traceForeground;
       uniform bool traceTextOnly;
+      uniform bool traceContentEnabled;
+      uniform bool traceBackdropEnabled;
       varying vec2 vUv;
       void main() {
         vec2 traceUv = (vUv - traceBounds.xy) / traceBounds.zw;
@@ -105,8 +120,9 @@ export function createPageScene(canvas, options = {}) {
           float samplesHere = pass + (tracePartialCoverage > 0. && traceUv.y >= 1. - tracePartialCoverage ? 1. : 0.);
           float confidence = traceResolutionConfidence * min(1., samplesHere / traceFadeSamples);
           float weight = firstResult < 0. ? 0. : confidence * smoothstep(0., ${TRACE_REVEAL_MS / 1000}, traceTime - firstResult);
+          bool rasterForeground = texture2D(depthMap, vUv).r < texture2D(backdropDepth, vUv).r;
+          if (rasterForeground ? !traceContentEnabled : !traceBackdropEnabled) weight = 0.;
           if (traceForeground) {
-            bool rasterForeground = texture2D(depthMap, vUv).r < texture2D(backdropDepth, vUv).r;
             bool foregroundPixel = rasterForeground || (!traceTextOnly && traced.a > 0.);
             if (foregroundPixel) {
               vec4 backdrop = texture2D(backdropMap, vUv);
@@ -145,9 +161,9 @@ export function createPageScene(canvas, options = {}) {
   let frame = 0, previous = null, tracer = null;
   let disposed = false, building = false, geometryDirty = true, dirty = true;
   let revision = 0, phase = 'starting', firstFrame = false;
-  let traceStage = traceStageFor(settings.value.traceMode);
+  let traceStage = nextTraceStage();
   let dynamicRoots = [], staticMeshes = [], foregroundMeshes = [];
-  let traceEnabled = settings.value.enabled, contextAvailable = true;
+  let traceEnabled = tracing(), contextAvailable = true;
 
   const resetReveal = () => {
     const nextHeight = tracer?.target.height || 1;
@@ -160,6 +176,7 @@ export function createPageScene(canvas, options = {}) {
     try { callback?.(value); } catch (error) { console.error(error); }
   };
   const collect = () => {
+    enableSceneShadows(scene);
     dynamicRoots = [];
     staticMeshes = [];
     foregroundMeshes = [];
@@ -185,7 +202,9 @@ export function createPageScene(canvas, options = {}) {
     canvas.dataset.traceMethod = 'path-tracing';
     canvas.dataset.traceStage = traceStage;
     canvas.dataset.traceMode = settings.value.traceMode;
-    canvas.dataset.traceEnabled = String(settings.value.enabled);
+    canvas.dataset.traceEnabled = String(tracing());
+    canvas.dataset.traceContentEnabled = String(settings.value.enabled);
+    canvas.dataset.traceBackdropEnabled = String(backdropSettings.value.enabled);
     const selectedSamples = settings.value.samples ?? AUTO_SAMPLES;
     canvas.dataset.traceStageTargetSamples = String(traceStage === 'foreground' ? Math.min(4, selectedSamples) : resolutionPass.sampleTarget(tracer?.scale ?? budget.scale, selectedSamples));
     canvas.dataset.traceRevision = String(revision);
@@ -247,7 +266,7 @@ export function createPageScene(canvas, options = {}) {
     const version = revision;
     tracer?.dispose(); tracer = null;
     traceHistory.reset();
-    traceStage = traceStageFor(settings.value.traceMode);
+    traceStage = nextTraceStage();
     resetReveal();
     qualityPass = new ProgressiveTrace(settings.value.bounces);
     resolutionPass = new ProgressiveResolution();
@@ -274,13 +293,13 @@ export function createPageScene(canvas, options = {}) {
       const next = await attachTracer(renderer, tracingScene, camera, {
         bounces: qualityPass.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles, initialScale: budget.scale,
         dynamicLowRes: false, renderDelay: 0, scanline: true, viewport: visible,
-        foregroundOnly: settings.value.traceMode === 'scene',
-        environmentTop: 0xd8d8d8, environmentBottom: 0xb8b8b8,
+        foregroundOnly: settings.value.traceMode === 'scene' && settings.value.enabled,
+        environmentTop: SKY_TOP, environmentBottom: SKY_BOTTOM,
       });
       if (disposed || version !== revision) next.dispose();
       else {
         tracer = next;
-        traceStage = traceStageFor(settings.value.traceMode, tracer.hasBackdrop);
+        traceStage = nextTraceStage(tracer.hasBackdrop);
         tracer.setForegroundOnly(traceStage === 'foreground');
         resetReveal();
         phase = 'tracing';
@@ -302,6 +321,7 @@ export function createPageScene(canvas, options = {}) {
     renderer.setRenderTarget(staticTarget);
     renderer.autoClear = true;
     try {
+      renderer.shadowMap.needsUpdate = true;
       renderer.render(scene, camera);
       backdropCache.refresh(renderer, scene, camera, foregroundMeshes);
       staticDirty = false;
@@ -326,6 +346,8 @@ export function createPageScene(canvas, options = {}) {
       ? traceDisplayLimit(tracer.target, area, qualityPass.settled) : 0;
     staticMaterial.uniforms.traceForeground.value = traceStage !== 'background';
     staticMaterial.uniforms.traceTextOnly.value = settings.value.traceMode === 'text';
+    staticMaterial.uniforms.traceContentEnabled.value = settings.value.enabled;
+    staticMaterial.uniforms.traceBackdropEnabled.value = backdropSettings.value.enabled;
   };
   const captureHistory = (time, transient = false) => {
     cacheStatic();
@@ -381,6 +403,7 @@ export function createPageScene(canvas, options = {}) {
   function draw(time) {
     frame = 0;
     if (disposed || !contextAvailable || document.hidden) { previous = null; budget.resetCadence(); return; }
+    if (!cadence.accept(time)) { wake(); return; }
     budget.begin(time);
     for (const result of timer.poll()) {
       if (result.kind === 'paint') budget.paint(result.milliseconds);
@@ -401,7 +424,7 @@ export function createPageScene(canvas, options = {}) {
         tracer.setScale(budget.scale);
         tracer.setTiles(budget.tiles);
         tracer.setViewport(visible);
-        traceStage = traceStageFor(settings.value.traceMode, tracer.hasBackdrop);
+        traceStage = nextTraceStage(tracer.hasBackdrop);
         tracer.setForegroundOnly(traceStage === 'foreground');
         budget.resetBatchMeasurements();
         qualityPass = new ProgressiveTrace(settings.value.bounces);
@@ -513,7 +536,7 @@ export function createPageScene(canvas, options = {}) {
     }
     if (change.geometry !== false && !change.dynamic) {
       revision++;
-      traceEnabled = settings.value.enabled;
+      traceEnabled = tracing();
       geometryDirty = traceEnabled;
       phase = traceEnabled ? 'loading' : 'raster';
     }
@@ -534,11 +557,12 @@ export function createPageScene(canvas, options = {}) {
     camera.left = -width / 2; camera.right = width / 2;
     camera.top = 0; camera.bottom = -height;
     camera.updateProjectionMatrix();
+    moonlight.resize(width, height);
     invalidate();
   };
   const qualityChanged = () => {
     revision++;
-    traceEnabled = settings.value.enabled;
+    traceEnabled = tracing();
     geometryDirty = traceEnabled;
     phase = traceEnabled ? 'loading' : 'raster';
     delete canvas.dataset.traceStartedAt;
@@ -546,15 +570,17 @@ export function createPageScene(canvas, options = {}) {
     traceHistory.reset();
     tracer?.dispose(); tracer = null;
     resetReveal();
-    traceStage = traceStageFor(settings.value.traceMode);
+    traceStage = nextTraceStage();
     budget.resetQuality();
     const previousRatio = ratio;
     ratio = 0;
     resize(width, height, previousRatio);
   };
   const unsubscribe = settings.subscribe(qualityChanged);
+  const unsubscribeBackdrop = backdropSettings === settings ? () => {} : backdropSettings.subscribe(qualityChanged);
   const visibility = () => {
     previous = null;
+    cadence.reset();
     budget.resetCadence();
     if (document.hidden) { cancelAnimationFrame(frame); frame = 0; }
     else { dirty = true; wake(); }
@@ -578,6 +604,7 @@ export function createPageScene(canvas, options = {}) {
         group.userData.traceRole = role;
       }
       if (dynamic) group.userData.dynamic = true;
+      group.traverse(object => { if (object.shadow) shadowResources.add(object.shadow); });
       scene.add(group);
       collect();
       invalidate(dynamic && !building ? { dynamic: true } : {});
@@ -591,7 +618,7 @@ export function createPageScene(canvas, options = {}) {
     },
     invalidate, resize,
     resetTracingQuality() {
-      if (!settings.value.enabled) return;
+      if (!tracing()) return;
       preserve();
       traceHistory.clearTransient();
       qualityPass = new ProgressiveTrace(settings.value.bounces);
@@ -599,7 +626,7 @@ export function createPageScene(canvas, options = {}) {
       budget.maxTiles = 8;
       budget.resetQuality();
       budget.scale = 0.5;
-      traceStage = traceStageFor(settings.value.traceMode, tracer?.hasBackdrop);
+      traceStage = nextTraceStage(tracer?.hasBackdrop);
       tracer?.setForegroundOnly(traceStage === 'foreground');
       tracer?.setBounces(1);
       tracer?.setTiles(budget.tiles);
@@ -623,6 +650,7 @@ export function createPageScene(canvas, options = {}) {
     get state() { return phase; },
     get samples() { return tracer?.samples || 0; },
     get cameraRays() { return cameraRays; },
+    get frameCount() { return cadence.frames; },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -630,6 +658,7 @@ export function createPageScene(canvas, options = {}) {
       cancelAnimationFrame(frame);
       callbacks.clear();
       unsubscribe();
+      unsubscribeBackdrop();
       document.removeEventListener('visibilitychange', visibility);
       removeEventListener('scroll', scroll);
       canvas.removeEventListener('webglcontextlost', contextLost);
@@ -642,6 +671,8 @@ export function createPageScene(canvas, options = {}) {
       resources.forEach(resource => resource.dispose());
       timer.dispose();
       environment.dispose();
+      moonlight.dispose();
+      shadowResources.forEach(shadow => shadow.dispose());
       staticTarget.dispose();
       backdropCache.dispose();
       revealTexture.dispose();

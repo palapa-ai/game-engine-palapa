@@ -2,8 +2,8 @@ import { BufferGeometry, Group, Mesh } from './vendor/three.module.min.js';
 
 export const traceRoles = Object.freeze(['content', 'backdrop', 'text']);
 
-export function traceStageFor(mode, hasBackdrop = false) {
-  return mode === 'text' ? 'text' : hasBackdrop ? 'foreground' : 'background';
+export function traceStageFor(mode, hasBackdrop = false, content = true) {
+  return mode === 'text' ? 'text' : hasBackdrop && content ? 'foreground' : 'background';
 }
 
 export function traceForeground(role, mode) {

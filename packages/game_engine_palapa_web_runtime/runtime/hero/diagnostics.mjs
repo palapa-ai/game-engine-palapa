@@ -2,19 +2,15 @@ import { renderSettings } from './render-settings.mjs';
 import { RayStatistics } from './ray-statistics.mjs';
 import { traceProgress } from './trace-progress.mjs';
 
-export function createFrameCounter(element) {
-  let frame = 0, count = 0, start = performance.now();
+export function createFrameCounter(element, source) {
+  let count = source.frameCount, start = performance.now();
   element.textContent = '… fps';
-  const tick = time => {
-    count++;
-    if (time - start >= 500) {
-      element.textContent = `${Math.round(count * 1000 / (time - start))} fps`;
-      start = time; count = 0;
-    }
-    frame = requestAnimationFrame(tick);
-  };
-  frame = requestAnimationFrame(tick);
-  return { dispose() { cancelAnimationFrame(frame); } };
+  const timer = setInterval(() => {
+    const time = performance.now(), frames = source.frameCount;
+    element.textContent = `${Math.round((frames - count) * 1000 / (time - start))} fps`;
+    start = time; count = frames;
+  }, 1000);
+  return { dispose() { clearInterval(timer); } };
 }
 
 export function createDiagnostics(element, source, { traces = [], controls = [] } = {}) {
@@ -60,10 +56,10 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
   });
   const unsubscribe = renderSettings.subscribe(sync);
   sync();
-  const fps = createFrameCounter(root.getElementById('fps'));
+  const fps = createFrameCounter(root.getElementById('fps'), source);
   const statistics = new RayStatistics([source, ...traces.map(trace => trace.source)]);
   const number = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-  root.getElementById('rays').title = 'Primary camera rays submitted since this page opened, across both tracing worlds and scene rebuilds. Bounce and shadow rays are not counted.';
+  root.getElementById('rays').title = 'Primary camera rays submitted since this page opened, across the shared scene and its rebuilds. Bounce and shadow rays are not counted.';
   root.getElementById('rate').title = 'Primary camera rays submitted per second of elapsed time, updated every second.';
   root.getElementById('download').title = 'Time spent fetching the page and startup resources before the page reveal, including request latency and cache reads. Simultaneous requests count once; gaps spent setting up and rendering are excluded.';
   const seconds = milliseconds => `${(milliseconds / 1000).toFixed(2)}s`;
@@ -106,7 +102,7 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
       });
       return `${percent}% · ${value} spp${refining ? ' · refining' : ''}${enabled.length > 1 && trace.label ? ` · ${trace.label.replace(/^Ray trace /i, '')}` : ''}`;
     }).join('\n');
-    root.getElementById('spp').title = 'Progress toward each enabled world’s final sample target (Auto: 64 spp), at the selected bounces and resolution within the canvas limits. Preview passes show 0% while refining; 100% waits for the finished image. Scene, camera, visible area, and quality changes restart progress. Total camera rays keep counting.';
+    root.getElementById('spp').title = 'Progress toward the shared scene’s final sample target (Auto: 64 spp), at the selected bounces and resolution within the canvas limits. Preview passes show 0% while refining; 100% waits for the finished image. Scene, camera, visible area, and quality changes restart progress. Total camera rays keep counting.';
   };
   const timer = setInterval(read, 250);
   read();

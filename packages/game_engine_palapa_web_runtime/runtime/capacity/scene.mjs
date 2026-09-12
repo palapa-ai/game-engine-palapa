@@ -8,6 +8,7 @@ import { LineMaterial } from '../hero/vendor/LineMaterial.js';
 import { transitionPages } from './transitions.mjs';
 import { lightMovingGroup } from './lighting.mjs';
 import { antiqueMap, antiqueMount } from './antique-globe.mjs';
+import { createSphereOccluder } from '../hero/scene-lighting.mjs';
 import { historicalMapTexture } from './map-texture.mjs';
 
 const COLORS = { text: 0xffffff, grey: 0xffffff, green: 0x73c991 };
@@ -24,7 +25,7 @@ export function createCapacity(canvas, options) {
   const host = options.host;
   let stopTick = null;
   let localHeight = 1;
-  let renderer, scene, camera, globe, globeBody, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, antiqueMaterial, meridian, table, ticker;
+  let renderer, scene, camera, globe, globeBody, globeOccluder, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, antiqueMaterial, meridian, table, ticker;
   let dead = false, ready = false, visible = false, frame = 0, previous = null;
   let elapsed = 0, period = 0;
   const pages = [], lighting = [];
@@ -81,9 +82,10 @@ export function createCapacity(canvas, options) {
     globeBody.material = [globeBody.userData.tracedPhotoMaterial || photoMaterial, outlineMaterial, antiqueMaterial][globeStyle];
     coastlines.visible = rim.visible = globeStyle === 1;
     atmosphere.visible = globeStyle === 0;
+    const mountChanged = meridian.visible !== (globeStyle === 2);
     meridian.visible = globeStyle === 2;
     announce();
-    render();
+    render(mountChanged);
   };
   const settleTable = next => {
     currentPage = next;
@@ -279,6 +281,9 @@ export function createCapacity(canvas, options) {
     const globeRadius = globeScale * 0.99;
     globe.position.set(narrow ? 0 : -2.5, narrow ? worldHeight / 2 - 18 * perPixel - globeRadius : 0.25, 0);
     globe.scale.setScalar(globeScale);
+    if (globeOccluder) {
+      globeOccluder.position.copy(globe.position); globeOccluder.scale.copy(globe.scale);
+    }
     rim.position.copy(globe.position); rim.scale.copy(globe.scale);
     meridian.position.copy(globe.position); meridian.scale.copy(globe.scale);
     table.scale.setScalar(tableScale);
@@ -354,6 +359,7 @@ export function createCapacity(canvas, options) {
       materialsToDispose.add(photoMaterial); materialsToDispose.add(outlineMaterial);
       globeBody = new THREE.Mesh(new THREE.SphereGeometry(0.99, 96, 64), photoMaterial);
       globe.add(globeBody);
+      if (host) { globeOccluder = createSphereOccluder(0.99); scene.add(globeOccluder); }
       const vector = (longitude, latitude) => {
         const lon = longitude * Math.PI / 180, lat = latitude * Math.PI / 180;
         return [Math.cos(lat) * Math.cos(lon), Math.sin(lat), -Math.cos(lat) * Math.sin(lon)];
