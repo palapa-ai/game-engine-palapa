@@ -3,6 +3,7 @@ import { FontLoader } from "./vendor/FontLoader.js";
 import { TextGeometry } from "./vendor/TextGeometry.js";
 import { traceSurface } from "./trace-surface.mjs";
 import { renderSettings } from "./render-settings.mjs";
+import { textMaterials, disposeMaterials } from './materials.mjs';
 
 const TAN = Math.tan(Math.PI / 12);
 const HALF_W = 4.15;
@@ -31,18 +32,14 @@ const em = (font, str) => [...str].reduce((width, ch) => {
 const rowEm = (font, row) =>
   row.reduce((width, seg, i) => width + em(font, seg.text) + (i ? GAP : 0), 0);
 
-const word = (font, text, color, size, preserveWhite = false) => {
+const word = (font, text, color, size, options) => {
   const geometry = new TextGeometry(text, {
     font, size, depth: size * 0.2, curveSegments: 2,
   });
   geometry.computeBoundingBox();
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshStandardMaterial({
-      color, roughness: 0.35, metalness: 0.05,
-      emissive: preserveWhite && color === 0xffffff ? 0xffffff : 0x000000,
-      toneMapped: !(preserveWhite && color === 0xffffff),
-    }),
+    textMaterials(new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.05 }), options),
   );
   mesh.userData.traceRole = 'text';
   const { min, max } = geometry.boundingBox;
@@ -62,10 +59,10 @@ const light = (scene) => {
   });
 };
 
-const row = (font, segs, size, parent, maxWidth, preserveWhite) => {
+const row = (font, segs, size, parent, maxWidth, options) => {
   const group = new THREE.Group();
   const x = segs.reduce((pen, seg) => {
-    const item = word(font, seg.text, seg.color, size, preserveWhite);
+    const item = word(font, seg.text, seg.color, size, options);
     item.mesh.position.x = pen - item.mn;
     group.add(item.mesh);
     return pen + item.w + size * GAP;
@@ -225,7 +222,7 @@ export function buildTextGroup(font, definition, width) {
         mesh.userData.traceRole = 'content';
         group.add(mesh);
       } else if (entry.text.trim()) {
-        const item = word(font, entry.text, entry.color, entry.size, content.preserveWhite);
+        const item = word(font, entry.text, entry.color, entry.size, content);
         item.mesh.position.set(-width / 2 + entry.x, -entry.baseline, front - entry.size * 0.2);
         group.add(item.mesh);
       }
@@ -235,7 +232,7 @@ export function buildTextGroup(font, definition, width) {
       const line = new THREE.Group();
       line.position.set(0, -size * (FIRST_BASELINE + index * LINE), front - size * 0.2);
       group.add(line);
-      row(font, segments, size, line, Math.max(1, width - 4), content.preserveWhite);
+      row(font, segments, size, line, Math.max(1, width - 4), content);
     });
   }
   return { group, height, layout };
@@ -280,7 +277,7 @@ export function createText3d(canvas, options) {
     scene?.traverse((object) => {
       if (!object.isMesh) return;
       object.geometry.dispose();
-      object.material.dispose();
+      disposeMaterials(object.material);
     });
     scene = null;
   };

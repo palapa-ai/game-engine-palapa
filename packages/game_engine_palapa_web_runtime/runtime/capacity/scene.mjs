@@ -4,12 +4,14 @@ import { TextGeometry } from '../hero/vendor/TextGeometry.js';
 import { LineSegments2 } from '../hero/vendor/LineSegments2.js';
 import { LineSegmentsGeometry } from '../hero/vendor/LineSegmentsGeometry.js';
 import { LineMaterial } from '../hero/vendor/LineMaterial.js';
+import { textMaterials, disposeMaterials } from '../hero/materials.mjs';
 
 import { transitionPages } from './transitions.mjs';
 import { lightMovingGroup } from './lighting.mjs';
 import { antiqueMap, antiqueMount } from './antique-globe.mjs';
 import { createSphereOccluder } from '../hero/scene-lighting.mjs';
 import { historicalMapTexture } from './map-texture.mjs';
+import { createPlanetMaterials, createSaturnRing, planetNames } from './planet-materials.mjs';
 
 const COLORS = { text: 0xffffff, grey: 0xffffff, green: 0x73c991 };
 const LEFT = -0.36;
@@ -25,7 +27,7 @@ export function createCapacity(canvas, options) {
   const host = options.host;
   let stopTick = null;
   let localHeight = 1;
-  let renderer, scene, camera, globe, globeBody, globeOccluder, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, antiqueMaterial, meridian, table, ticker;
+  let renderer, scene, camera, globe, globeBody, globeOccluder, coastlines, rim, atmosphere, photoMaterial, outlineMaterial, antiqueMaterial, meridian, saturnRing, table, ticker;
   let dead = false, ready = false, visible = false, frame = 0, previous = null;
   let elapsed = 0, period = 0;
   const pages = [], lighting = [];
@@ -35,7 +37,7 @@ export function createCapacity(canvas, options) {
   const tickerClip = [new THREE.Plane(new THREE.Vector3(1, 0, 0)), new THREE.Plane(new THREE.Vector3(-1, 0, 0))];
   let tableScale = 1, tickerScale = 1, tickerBottom = 0;
   let spinSpeed = SPIN_SPEED, globeStyle = 0;
-  const globeStyles = ['photorealistic', 'black and white', 'antique'];
+  let planetMaterials = new Map();
   const textures = new Set();
   const materialsToDispose = new Set();
   const lineMaterials = [];
@@ -74,18 +76,26 @@ export function createCapacity(canvas, options) {
   const announce = () => {
     const content = currentPage ? `${comparisons[currentPage - 1].title}, ${comparisons[currentPage - 1].unit}: ${comparisons[currentPage - 1].rows.map(row => row.join(', ')).join('; ')}` : countries.map((row, index) => `${index + 1}. ${row.country}, ${row.megawattHours} MWh`).join('; ') + `; Total ${total.toLocaleString('en-US')} MWh.`;
     const modelNames = models.length ? `${models.map(row => row.name).join('; ')}.` : '';
-    canvas.setAttribute('aria-label', `Country capacity. ${content} ${modelNames} Globe: ${globeStyles[globeStyle]}. Tap the globe or press G to switch globe views. Tap the table or press Enter, Space, or ArrowRight for the next table. Drag or flick the globe to spin it.`);
+    canvas.setAttribute('aria-label', `Country capacity. ${content} ${modelNames} Globe: ${planetNames[globeStyle]}. Tap the globe or press G to switch globe views. Tap the table or press Enter, Space, or ArrowRight for the next table. Drag or flick the globe to spin it.`);
+  };
+  const applyGlobeStyle = () => {
+    const name = planetNames[globeStyle];
+    if (name === 'black and white Earth') globeBody.material = outlineMaterial;
+    else if (name === 'realistic Earth') globeBody.material = globeBody.userData.tracedPhotoMaterial || photoMaterial;
+    else if (name === 'historical Earth') globeBody.material = antiqueMaterial;
+    else globeBody.material = planetMaterials.get(name);
+    coastlines.visible = rim.visible = name === 'black and white Earth';
+    atmosphere.visible = name === 'realistic Earth';
+    saturnRing.visible = name === 'Saturn';
+    meridian.visible = name === 'historical Earth';
   };
   const toggleGlobe = () => {
     if (!ready || dead) return;
-    globeStyle = (globeStyle + 1) % globeStyles.length;
-    globeBody.material = [globeBody.userData.tracedPhotoMaterial || photoMaterial, outlineMaterial, antiqueMaterial][globeStyle];
-    coastlines.visible = rim.visible = globeStyle === 1;
-    atmosphere.visible = globeStyle === 0;
-    const mountChanged = meridian.visible !== (globeStyle === 2);
-    meridian.visible = globeStyle === 2;
+    const mountWasVisible = meridian.visible;
+    globeStyle = (globeStyle + 1) % planetNames.length;
+    applyGlobeStyle();
     announce();
-    render(mountChanged);
+    render(mountWasVisible !== meridian.visible);
   };
   const settleTable = next => {
     currentPage = next;
@@ -359,6 +369,12 @@ export function createCapacity(canvas, options) {
       materialsToDispose.add(photoMaterial); materialsToDispose.add(outlineMaterial);
       globeBody = new THREE.Mesh(new THREE.SphereGeometry(0.99, 96, 64), photoMaterial);
       globe.add(globeBody);
+      const generatedPlanets = createPlanetMaterials();
+      planetMaterials = generatedPlanets.materials;
+      generatedPlanets.materials.forEach(material => materialsToDispose.add(material));
+      generatedPlanets.textures.forEach(texture => textures.add(texture));
+      saturnRing = createSaturnRing();
+      globe.add(saturnRing);
       if (host) { globeOccluder = createSphereOccluder(0.99); scene.add(globeOccluder); }
       const vector = (longitude, latitude) => {
         const lon = longitude * Math.PI / 180, lat = latitude * Math.PI / 180;
@@ -377,7 +393,7 @@ export function createCapacity(canvas, options) {
         return new LineSegments2(geometry, material);
       };
       coastlines = lines(land, COLORS.text); globe.add(coastlines);
-      coastlines.visible = globeStyle === 1;
+      coastlines.visible = false;
       const circle = [];
       for (let i = 0; i < 128; i++) {
         for (const a of [i, i + 1]) circle.push(Math.cos(a / 128 * Math.PI * 2) * 0.99, Math.sin(a / 128 * Math.PI * 2) * 0.99, 0);
@@ -385,7 +401,7 @@ export function createCapacity(canvas, options) {
       rim = lines(circle, 0x3a3a3a); scene.add(rim);
       rim.name = 'capacity-rim';
       if (host) rim.userData.dynamic = true;
-      rim.visible = globeStyle === 1;
+      rim.visible = false;
       atmosphere = new THREE.Mesh(new THREE.SphereGeometry(1.018, 64, 48),
         new THREE.ShaderMaterial({
           transparent: true, depthWrite: false, side: THREE.BackSide,
@@ -408,7 +424,7 @@ export function createCapacity(canvas, options) {
               gl_FragColor = vec4(0.20, 0.52, 1.0, glow * 0.55);
             }`,
         }));
-      atmosphere.visible = globeStyle === 0; globe.add(atmosphere);
+      atmosphere.visible = false; globe.add(atmosphere);
       table = new THREE.Group(); table.rotation.y = 0.25; scene.add(table);
       ticker = new THREE.Group(); scene.add(ticker);
       table.name = 'capacity-table'; ticker.name = 'capacity-ticker';
@@ -416,10 +432,7 @@ export function createCapacity(canvas, options) {
       const text = (label, color, size = FONT_SIZE) => {
         const geometry = new TextGeometry(label, { font, size, depth: size * 0.25, curveSegments: 2 });
         geometry.computeBoundingBox();
-        const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({
-          color, emissive: options.preserveWhite && color === 0xffffff ? 0xffffff : 0x000000,
-          toneMapped: !(options.preserveWhite && color === 0xffffff),
-        }));
+        const mesh = new THREE.Mesh(geometry, textMaterials(new THREE.MeshLambertMaterial({ color }), options));
         mesh.userData.traceRole = 'text';
         return { mesh, width: geometry.boundingBox.max.x - geometry.boundingBox.min.x };
       };
@@ -465,7 +478,7 @@ export function createCapacity(canvas, options) {
       addText(countriesPage, 'MWh', RIGHT, 1, COLORS.grey, { right: true });
       const values = [...countries.map(row => String(row.megawattHours)), total.toLocaleString('en-US')];
       const valueWidth = Math.max(...values.map(value => { const shape = text(value, COLORS.green); const measured = shape.width;
-        shape.mesh.geometry.dispose(); shape.mesh.material.dispose(); return measured; }));
+        shape.mesh.geometry.dispose(); disposeMaterials(shape.mesh.material); return measured; }));
       countries.forEach((row, index) => {
         const y = 1 - (index + 1) * ROW;
         addText(countriesPage, `#${index + 1}`, LEFT, y, COLORS.grey);
@@ -499,7 +512,7 @@ export function createCapacity(canvas, options) {
       const capitalBounds = capital.mesh.geometry.boundingBox;
       const capHeight = capitalBounds.max.y - capitalBounds.min.y;
       const capCenter = (capitalBounds.min.y + capitalBounds.max.y) / 2;
-      capital.mesh.geometry.dispose(); capital.mesh.material.dispose();
+      capital.mesh.geometry.dispose(); disposeMaterials(capital.mesh.material);
       const tickItem = (label, symbol) => {
         if (symbol) {
           const icon = flag(symbol, capHeight), width = icon.geometry.parameters.width;
@@ -515,7 +528,9 @@ export function createCapacity(canvas, options) {
         if (copy === 0) period = cursor;
       }
       ticker.visible = models.length > 0;
-      ticker.traverse(object => { if (object.material) object.material.clippingPlanes = tickerClip; });
+      ticker.traverse(object => [object.material].flat().filter(Boolean).forEach(material => {
+        material.clippingPlanes = tickerClip;
+      }));
       tickerBottom = new THREE.Box3().setFromObject(ticker).min.y;
       ready = true;
       if (host) host.add(scene);
@@ -524,11 +539,13 @@ export function createCapacity(canvas, options) {
         lighting.push(lightMovingGroup(canvas, group, camera, height || 767, () => {
           if (group === globeBody) {
             globeBody.userData.tracedPhotoMaterial ||= globeBody.material;
-            if (globeStyle !== 0) globeBody.material = globeStyle === 1 ? outlineMaterial : antiqueMaterial;
+            applyGlobeStyle();
           }
           render();
         }));
       }
+      applyGlobeStyle();
+      announce();
       options.onReady();
       if (options.antiqueMap) {
         // Keep this optional scan outside the first-frame/loading critical path.

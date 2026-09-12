@@ -1,5 +1,6 @@
 import { FontLoader } from './vendor/FontLoader.js';
 import { buildTextGroup } from './text3d.mjs';
+import { disposeMaterials } from './materials.mjs';
 
 const fonts = new Map();
 function loadFont(url) {
@@ -18,7 +19,7 @@ export async function createTextSurface(element, { host, fontUrl, content, onRea
   element.append(links);
   const release = () => group?.traverse(object => {
     object.geometry?.dispose();
-    object.material?.dispose();
+    disposeMaterials(object.material);
   });
   const place = () => {
     if (!group) return;

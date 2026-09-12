@@ -147,12 +147,14 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
   });
 
   const meridian = root.getObjectByName('antique-globe-meridian');
-  for (const style of ['black and white', 'antique', 'photorealistic']) {
+  assert.ok(anchor['aria-label'].includes('Globe: black and white Earth.'), 'the monochrome globe is the default');
+  for (const style of ['Mercury', 'Venus', 'realistic Earth', 'historical Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Moon', 'black and white Earth']) {
     const before = geometryChanges;
     const wasVisible = meridian.visible;
     anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'g' }));
     assert.ok(anchor['aria-label'].includes(`Globe: ${style}.`));
-    assert.equal(meridian.visible, style === 'antique');
+    assert.equal(meridian.visible, style === 'historical Earth');
+    assert.equal(root.getObjectByName('saturn-ring').visible, style === 'Saturn');
     assert.equal(geometryChanges, before + Number(wasVisible !== meridian.visible), 'only mounting visibility changes rebuild its shadows');
   }
   const afterStyleChanges = geometryChanges;

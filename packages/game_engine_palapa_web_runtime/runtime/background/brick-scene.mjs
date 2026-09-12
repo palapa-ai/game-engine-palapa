@@ -7,6 +7,8 @@ const hashCell = (column, row, seed) => {
   return (value ^ (value >>> 16)) >>> 0;
 };
 
+export const brickCourse = layout => layout.minimumWidth * layout.courseFraction;
+
 export async function createBrickWall(host, assetUrl) {
   const asset = await loadSceneAsset(assetUrl);
   const layout = asset.userData.assetMetadata.brickLayout;
@@ -45,7 +47,7 @@ export async function createBrickWall(host, assetUrl) {
       bed.scale.set(width, height, 1);
       bed.position.set(0, -height / 2, 0);
       group.add(bed);
-      const course = Math.max(layout.minimumWidth, width) * layout.courseFraction;
+      const course = brickCourse(layout);
       const brickWidth = course * layout.aspect;
       for (let row = -1; row >= -Math.ceil(height / course); row--) {
         const shift = ((row % 2 + 2) % 2) * brickWidth / 2;
