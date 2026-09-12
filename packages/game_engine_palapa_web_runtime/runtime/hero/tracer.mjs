@@ -5,6 +5,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { prepareTraceBackdrop } from "./trace-backdrop.mjs";
 import { scanlineRows } from "./scanline.mjs";
 import { normalizeTraceViewport, sameTraceViewport, traceViewportSize, applyTraceViewport } from "./trace-viewport.mjs";
+import { traceError } from "./trace-failure.mjs";
 
 let modP = null;
 const mod = () => modP || (modP = import("./vendor/three-gpu-pathtracer.module.js"));
@@ -149,9 +150,11 @@ export async function attachTracer(renderer, scene, camera, cfg) {
   }
   catch (error) {
     cleanup();
-    throw error;
+    throw traceError(error, 'Scene build');
   }
 
+  let failure = null;
+  const failed = (error, operation) => { failure ||= traceError(error, operation); };
   return {
     dead: false,
     camera,
@@ -171,6 +174,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
         }
         return true;
       } catch (e) {
+        failed(e, 'Sampling');
         this.dead = true;
         scene.environment = null;
         return false;
@@ -222,21 +226,22 @@ export async function attachTracer(renderer, scene, camera, cfg) {
         pt.renderSample();
       } finally { pt.pausePathTracing = pause; pt.fadeDuration = fade; }
     },
-    rebuild() { if (!this.dead) build().catch(() => { this.dead = true; }); },
-    updateCamera() { if (this.dead) return; try { syncCamera(); pt.updateCamera(); } catch (e) { this.dead = true; } },
-    updateMaterials() { if (this.dead) return; try { pt.updateMaterials(); } catch (e) { this.dead = true; } },
+    rebuild() { if (!this.dead) build().catch(error => { failed(error, 'Scene rebuild'); this.dead = true; }); },
+    updateCamera() { if (this.dead) return; try { syncCamera(); pt.updateCamera(); } catch (e) { failed(e, 'Camera update'); this.dead = true; } },
+    updateMaterials() { if (this.dead) return; try { pt.updateMaterials(); } catch (e) { failed(e, 'Material update'); this.dead = true; } },
     updateLights() {
       if (this.dead) return;
       try {
         if (typeof pt.updateLights === "function") pt.updateLights();
-        else build().catch(() => { this.dead = true; });
-      } catch (e) { this.dead = true; }
+        else build().catch(error => { failed(error, 'Light rebuild'); this.dead = true; });
+      } catch (e) { failed(e, 'Light update'); this.dead = true; }
     },
     dispose() {
       this.dead = true;
       cleanup();
     },
     get foregroundOnly() { return backdrop.foregroundOnly; },
+    get error() { return failure; },
     get hasBackdrop() { return backdrop.hasBackdrop; },
     get viewport() { return viewport; },
     get bounces() { return pt.bounces; },

@@ -55,3 +55,26 @@ test('material groups normalize byte RGB colors while preserving explicit RGBA',
   assert.equal(rgbaTrace.scene.geometry.attributes.color, explicit);
   rgbaTrace.dispose(); trace.dispose(); result.geometry.dispose(); geometry.dispose(); material.dispose();
 });
+
+test('scene rebuilding cannot overflow color buffers when a colored mesh sorts first', () => {
+  for (const first of [true, false]) {
+    const geometry = new THREE.BoxGeometry();
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(
+      new Float32Array(geometry.attributes.position.count * 3).fill(0.5), 3));
+    const material = new THREE.MeshStandardMaterial({ vertexColors: true });
+    const plain = new THREE.MeshStandardMaterial();
+    const uncoloredGeometry = new THREE.BoxGeometry();
+    const root = new THREE.Group();
+    const colored = new THREE.Mesh(geometry, material); colored.name = 'colored';
+    const uncolored = new THREE.Mesh(uncoloredGeometry, plain); uncolored.name = 'uncolored';
+    root.add(colored, uncolored);
+    const trace = cloneTraceScene(root, 'scene');
+    trace.scene.getObjectByName('colored').uuid = first ? 'aaa' : 'zzz';
+    trace.scene.getObjectByName('uncolored').uuid = first ? 'zzz' : 'aaa';
+    const result = new PathTracingSceneGenerator(trace.scene).generate();
+    assert.equal(result.geometry.attributes.color.itemSize, 4);
+    assert.equal(result.geometry.attributes.color.count, 48);
+    for (let index = 0; index < 48; index++) assert.equal(result.geometry.attributes.color.getW(index), 1);
+    trace.dispose(); result.geometry.dispose(); geometry.dispose(); uncoloredGeometry.dispose(); material.dispose(); plain.dispose();
+  }
+});

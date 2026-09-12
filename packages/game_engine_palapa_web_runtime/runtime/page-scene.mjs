@@ -241,6 +241,7 @@ export function createPageScene(canvas, options = {}) {
     phase = 'fallback';
     canvas.dataset.traceFailure = String(error?.message || error);
     status();
+    console.error('[Page ray tracing]', error);
     notify(options.onError, error);
     dirty = true;
   };
@@ -276,15 +277,18 @@ export function createPageScene(canvas, options = {}) {
     budget.setViewportHeight(visible.height);
     collect();
     staticDirty = true;
-    const { scene: tracingScene, meshes, dispose: releaseTraceGeometry } = cloneTraceScene(scene, settings.value.traceMode);
-    canvas.dataset.traceMeshCount = String(meshes);
-    phase = 'loading';
-    canvas.dataset.traceStartedAt = String(performance.now());
-    delete canvas.dataset.traceFinishedAt;
-    delete canvas.dataset.traceFirstSampleAt;
-    delete canvas.dataset.traceForegroundFinishedAt;
-    status();
+    let releaseTraceGeometry = () => {};
     try {
+      const cloned = cloneTraceScene(scene, settings.value.traceMode);
+      releaseTraceGeometry = cloned.dispose;
+      const { scene: tracingScene, meshes } = cloned;
+      canvas.dataset.traceMeshCount = String(meshes);
+      phase = 'loading';
+      canvas.dataset.traceStartedAt = String(performance.now());
+      delete canvas.dataset.traceFinishedAt;
+      delete canvas.dataset.traceFirstSampleAt;
+      delete canvas.dataset.traceForegroundFinishedAt;
+      status();
       if (meshes === 0) {
         phase = 'complete';
         canvas.dataset.traceFinishedAt = String(performance.now());
@@ -299,6 +303,7 @@ export function createPageScene(canvas, options = {}) {
       if (disposed || version !== revision) next.dispose();
       else {
         tracer = next;
+        delete canvas.dataset.traceFailure;
         traceStage = nextTraceStage(tracer.hasBackdrop);
         tracer.setForegroundOnly(traceStage === 'foreground');
         resetReveal();
@@ -516,7 +521,7 @@ export function createPageScene(canvas, options = {}) {
             budget.submitted();
             if (previousSamples > 0) budget.ray(performance.now() - started, null, divisions, tracer.scale, submittedBands, epoch, rows);
           }
-          if (!sampled) throw Error('Page ray tracing unavailable');
+          if (!sampled) throw tracer.error ?? Error('Page ray tracing unavailable');
           dirty = true;
         }
       }
@@ -619,6 +624,7 @@ export function createPageScene(canvas, options = {}) {
     invalidate, resize,
     resetTracingQuality() {
       if (!tracing()) return;
+      if (!tracer) { qualityChanged(); return; }
       preserve();
       traceHistory.clearTransient();
       qualityPass = new ProgressiveTrace(settings.value.bounces);

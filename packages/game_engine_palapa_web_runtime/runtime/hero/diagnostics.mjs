@@ -1,6 +1,7 @@
 import { renderSettings } from './render-settings.mjs';
 import { RayStatistics } from './ray-statistics.mjs';
 import { traceProgress } from './trace-progress.mjs';
+import { traceStatus } from './trace-failure.mjs';
 
 export function createFrameCounter(element, source) {
   let count = source.frameCount, start = performance.now();
@@ -85,9 +86,7 @@ export function createDiagnostics(element, source, { traces = [], controls = [] 
     const { total, perSecond } = statistics.read();
     root.getElementById('rays').textContent = `${number.format(total)} total rays`;
     root.getElementById('rate').textContent = `${number.format(perSecond)} rays/s`;
-    const status = enabled.length === 0 ? 'Ray tracing off'
-      : enabled.some(trace => trace.source?.state === 'fallback') ? 'Ray tracing unavailable'
-      : enabled.some(trace => ['starting', 'loading'].includes(trace.source?.state)) ? 'Preparing ray tracing…' : '';
+    const status = traceStatus(enabled);
     root.getElementById('trace').hidden = !status;
     root.getElementById('trace').textContent = status;
     root.getElementById('spp').textContent = enabled.map(trace => {
