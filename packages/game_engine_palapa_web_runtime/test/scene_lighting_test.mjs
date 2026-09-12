@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from '../runtime/hero/vendor/three.module.min.js';
-import { createMoonlight, createSphereOccluder, enableSceneShadows } from '../runtime/hero/scene-lighting.mjs';
+import { createSunlight, createSphereOccluder, enableSceneShadows } from '../runtime/hero/scene-lighting.mjs';
 import { cloneTraceScene, traceStageFor } from '../runtime/hero/trace-scene.mjs';
 
-test('moon shadow projection encloses desktop and tall mobile page geometry', () => {
+test('sun shadow projection encloses desktop and tall mobile page geometry', () => {
   const scene = new THREE.Scene();
-  const moon = createMoonlight(scene);
+  const sun = createSunlight(scene);
   for (const [width, height] of [[1440, 3600], [390, 8200]]) {
-    moon.resize(width, height);
-    const camera = moon.light.shadow.camera;
+    sun.resize(width, height);
+    const camera = sun.light.shadow.camera;
+    const direction = sun.light.position.clone().sub(sun.light.target.position);
+    const shadowShift = Math.hypot(direction.x, direction.y) / direction.z;
+    assert.ok(shadowShift < 0.3, 'letter shadows stay near their source on the wall');
     for (const x of [-width / 2, width / 2]) {
       for (const y of [-height, 0]) {
         for (const z of [-550, 400]) {
@@ -19,13 +22,13 @@ test('moon shadow projection encloses desktop and tall mobile page geometry', ()
       }
     }
   }
-  moon.dispose();
+  sun.dispose();
   assert.equal(scene.children.length, 0);
 });
 
-test('wall, lettering, orb and moon share trace geometry and shadow casters', () => {
+test('wall, lettering, orb and sun share trace geometry and shadow casters', () => {
   const scene = new THREE.Scene();
-  const moon = createMoonlight(scene);
+  const sun = createSunlight(scene);
   const material = new THREE.MeshStandardMaterial();
   const wall = new THREE.Mesh(new THREE.BoxGeometry(100, 100, 5), material);
   wall.name = 'wall'; wall.userData.traceRole = 'backdrop'; wall.position.z = -500;
@@ -34,10 +37,10 @@ test('wall, lettering, orb and moon share trace geometry and shadow casters', ()
   const orb = new THREE.PointLight(0xddeeff, 120000); orb.name = 'orb'; orb.position.z = 100;
   scene.add(wall, letters, orb);
   enableSceneShadows(scene);
-  moon.resize(100, 100);
+  sun.resize(100, 100);
   const trace = cloneTraceScene(scene, 'scene');
   assert.equal(trace.meshes, 2);
-  for (const name of ['wall', 'letters', 'orb', 'Moonlight']) {
+  for (const name of ['wall', 'letters', 'orb', 'Sunlight']) {
     assert.ok(trace.scene.getObjectByName(name));
     assert.equal(scene.getObjectByName(name).castShadow, true);
   }
@@ -45,7 +48,7 @@ test('wall, lettering, orb and moon share trace geometry and shadow casters', ()
   assert.equal(trace.scene.getObjectByName('orb').intensity, 120000);
   assert.equal(traceStageFor('scene', true, false), 'background', 'bricks can trace while content display stays raster');
   assert.equal(traceStageFor('scene', true, true), 'foreground');
-  trace.dispose(); moon.dispose(); wall.geometry.dispose(); letters.geometry.dispose(); material.dispose();
+  trace.dispose(); sun.dispose(); wall.geometry.dispose(); letters.geometry.dispose(); material.dispose();
 });
 
 test('spinning globe occlusion stays in the static world without covering its animated skin', () => {

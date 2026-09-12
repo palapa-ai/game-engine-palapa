@@ -44,7 +44,7 @@ export async function attachTracer(renderer, scene, camera, cfg) {
     env.bottomColor.set(cfg.environmentBottom ?? 0x0d0d0d);
     env.update();
     scene.environment = env;
-    scene.environmentIntensity = 1;
+    scene.environmentIntensity = cfg.environmentIntensity ?? 1;
     // Missed camera rays expose the page wall without removing environment lighting.
     scene.background = null;
 

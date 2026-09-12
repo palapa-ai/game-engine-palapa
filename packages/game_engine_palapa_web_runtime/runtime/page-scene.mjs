@@ -11,20 +11,19 @@ import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
 import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
 import { FrameCadence } from './hero/frame-cadence.mjs';
-import { createMoonlight, enableSceneShadows } from './hero/scene-lighting.mjs';
+import { DAYLIGHT, createSunlight, enableSceneShadows } from './hero/scene-lighting.mjs';
 import { cloneTraceScene, traceForeground, traceRoles, traceStageFor } from './hero/trace-scene.mjs';
 
 const MAX_PIXELS = 3000000;
 const AUTO_SAMPLES = 64;
-const SKY_TOP = 0xeaf3ff, SKY_BOTTOM = 0x9daec7;
 
 // Broad reflected light for moving metal, matching the static tracer's sky.
 // Build and prefilter once; animated frames only sample the resulting texture.
 function softEnvironment(renderer) {
   const width = 64, height = 32, data = new Float32Array(width * height * 4);
-  const top = new THREE.Color(SKY_TOP), bottom = new THREE.Color(SKY_BOTTOM), color = new THREE.Color();
+  const top = new THREE.Color(DAYLIGHT.skyTop), bottom = new THREE.Color(DAYLIGHT.skyBottom), color = new THREE.Color();
   for (let y = 0; y < height; y++) {
-    const weight = ((1 - Math.cos(Math.PI * y / (height - 1))) / 2) ** 2;
+    const weight = ((1 - Math.cos(Math.PI * y / height)) / 2) ** 2;
     color.copy(bottom).lerp(top, weight);
     for (let x = 0; x < width; x++) {
       const offset = (y * width + x) * 4;
@@ -54,11 +53,10 @@ export function createPageScene(canvas, options = {}) {
   const scene = new THREE.Scene();
   const environment = softEnvironment(renderer);
   scene.environment = environment.texture;
+  scene.environmentIntensity = DAYLIGHT.environmentIntensity;
   const camera = new THREE.OrthographicCamera(-1, 1, 0, -1, 0.1, 10000);
   camera.position.z = 2000;
-  scene.add(new THREE.AmbientLight(0xeaf3ff, 0.65));
-  scene.add(new THREE.HemisphereLight(SKY_TOP, SKY_BOTTOM, 0.85));
-  const moonlight = createMoonlight(scene, { mapSize: Math.min(4096, renderer.capabilities.maxTextureSize) });
+  const sunlight = createSunlight(scene, { mapSize: Math.min(4096, renderer.capabilities.maxTextureSize) });
   const shadowResources = new Set();
 
   const budget = new FrameBudget({ tiles: 2, maxTiles: 8 });
@@ -303,7 +301,8 @@ export function createPageScene(canvas, options = {}) {
         bounces: qualityPass.bounces, rtRes: 1, fxRes: 1, tiles: budget.tiles, initialScale: budget.scale,
         dynamicLowRes: false, renderDelay: 0, scanline: true, viewport: visible,
         foregroundOnly: settings.value.traceMode === 'scene' && settings.value.enabled,
-        environmentTop: SKY_TOP, environmentBottom: SKY_BOTTOM,
+        environmentTop: DAYLIGHT.skyTop, environmentBottom: DAYLIGHT.skyBottom,
+        environmentIntensity: DAYLIGHT.environmentIntensity,
       });
       if (disposed || version !== revision) next.dispose();
       else {
@@ -569,7 +568,7 @@ export function createPageScene(canvas, options = {}) {
     camera.left = -width / 2; camera.right = width / 2;
     camera.top = 0; camera.bottom = -height;
     camera.updateProjectionMatrix();
-    moonlight.resize(width, height);
+    sunlight.resize(width, height);
     invalidate();
   };
   const qualityChanged = () => {
@@ -686,7 +685,7 @@ export function createPageScene(canvas, options = {}) {
       resources.forEach(resource => resource.dispose());
       timer.dispose();
       environment.dispose();
-      moonlight.dispose();
+      sunlight.dispose();
       shadowResources.forEach(shadow => shadow.dispose());
       staticTarget.dispose();
       backdropCache.dispose();

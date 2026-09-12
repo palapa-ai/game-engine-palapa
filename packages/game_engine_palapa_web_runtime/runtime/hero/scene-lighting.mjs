@@ -1,5 +1,10 @@
 import { DirectionalLight, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from './vendor/three.module.min.js';
 
+export const DAYLIGHT = Object.freeze({
+  skyTop: 0xedf4ff, skyBottom: 0xd6cec0, environmentIntensity: 0.7,
+  sunColor: 0xfff6e8, sunIntensity: 1.1,
+});
+
 // A spinning sphere keeps the same light silhouette. Its camera-visible skin
 // can animate independently while this stationary surface occludes light.
 export function createSphereOccluder(radius) {
@@ -11,9 +16,9 @@ export function createSphereOccluder(radius) {
   return mesh;
 }
 
-export function createMoonlight(scene, { mapSize = 2048 } = {}) {
-  const light = new DirectionalLight(0xdbeaff, 1.6);
-  light.name = 'Moonlight';
+export function createSunlight(scene, { mapSize = 2048 } = {}) {
+  const light = new DirectionalLight(DAYLIGHT.sunColor, DAYLIGHT.sunIntensity);
+  light.name = 'Sunlight';
   light.castShadow = true;
   light.shadow.mapSize.set(mapSize, mapSize);
   light.shadow.normalBias = 0.6;
@@ -24,7 +29,7 @@ export function createMoonlight(scene, { mapSize = 2048 } = {}) {
     light,
     resize(width, height) {
       light.target.position.set(0, -height / 2, -500);
-      light.position.copy(light.target.position).add(new Vector3(-900, 1100, 2100)
+      light.position.copy(light.target.position).add(new Vector3(-500, 750, 4000)
         .multiplyScalar(Math.max(1, (Math.hypot(width, height) + 2000) / 2500)));
       scene.updateMatrixWorld(true);
       light.shadow.updateMatrices(light);
