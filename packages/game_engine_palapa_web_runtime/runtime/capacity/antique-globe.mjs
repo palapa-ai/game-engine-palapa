@@ -60,17 +60,41 @@ export function antiqueMap(rings) {
 export function antiqueMount() {
   const group = new THREE.Group();
   group.name = 'antique-globe-meridian';
+  const frame = new THREE.Group();
+  frame.rotation.x = 0.42;
+  group.add(frame);
   const brass = new THREE.MeshStandardMaterial({ color: 0xbda56a, metalness: 0.78, roughness: 0.27 });
   const meridian = new THREE.Mesh(new THREE.TorusGeometry(1.04, 0.018, 8, 128), brass);
   meridian.rotation.y = 0.95;
-  group.add(meridian);
+  frame.add(meridian);
   for (const sign of [-1, 1]) {
     const spindle = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.025, 0.16, 12), brass);
-    spindle.position.y = sign * 1.055; group.add(spindle);
+    spindle.position.y = sign * 1.055; frame.add(spindle);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.031, 12, 8), brass);
-    cap.position.y = sign * 1.13; group.add(cap);
+    cap.position.y = sign * 1.13; frame.add(cap);
   }
-  group.rotation.x = 0.42;
-  group.userData.dynamic = true;
+  const size = 128, grain = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const wave = Math.sin(x * 0.8 + Math.sin(y * 0.07) * 2.4);
+    const fine = Math.sin(x * 3.1 + y * 0.11) * 0.08;
+    const tone = 0.76 + wave * 0.16 + fine;
+    grain.set([105 * tone, 56 * tone, 28 * tone, 255], (y * size + x) * 4);
+  }
+  const woodMap = new THREE.DataTexture(grain, size, size);
+  woodMap.colorSpace = THREE.SRGBColorSpace;
+  woodMap.wrapS = woodMap.wrapT = THREE.RepeatWrapping;
+  woodMap.needsUpdate = true;
+  const wood = new THREE.MeshPhysicalMaterial({ map: woodMap, roughness: 0.4, metalness: 0,
+    clearcoat: 0.3, clearcoatRoughness: 0.3 });
+  wood.addEventListener('dispose', () => woodMap.dispose());
+  const profile = [[0, -1.34], [.48, -1.34], [.54, -1.31], [.54, -1.26],
+    [.49, -1.22], [.26, -1.21], [.15, -1.16], [0, -1.16]];
+  const pedestal = new THREE.Mesh(new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 64), wood);
+  pedestal.name = 'antique-globe-wooden-base';
+  pedestal.castShadow = pedestal.receiveShadow = true;
+  group.add(pedestal);
+  const support = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(0, -1.03, -0.46), new THREE.Vector3(0, -1.18, -0.46), new THREE.Vector3(0, -1.17, 0));
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(support, 16, 0.027, 8, false), brass));
   return group;
 }
