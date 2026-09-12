@@ -11,10 +11,10 @@ import { renderSettings } from './hero/render-settings.mjs';
 import { FullScreenQuad } from './hero/vendor/Pass.js';
 import { FrameBudget, gpuTimer } from './hero/frame-budget.mjs';
 import { FrameCadence } from './hero/frame-cadence.mjs';
+import { pageBufferSize } from './hero/page-resolution.mjs';
 import { DAYLIGHT, createSunlight, enableSceneShadows } from './hero/scene-lighting.mjs';
 import { cloneTraceScene, traceForeground, traceRoles, traceStageFor } from './hero/trace-scene.mjs';
 
-const MAX_PIXELS = 3000000;
 const AUTO_SAMPLES = 64;
 
 // Broad reflected light for moving metal, matching the static tracer's sky.
@@ -558,9 +558,9 @@ export function createPageScene(canvas, options = {}) {
     const nextRatio = Math.max(0.1, Number(pixelRatio) || 1);
     if (width === nextWidth && height === nextHeight && ratio === nextRatio) return;
     width = nextWidth; height = nextHeight; ratio = nextRatio;
-    const scale = Math.min(ratio * settings.value.resolution,
-      Math.sqrt(MAX_PIXELS / (width * height)), renderer.capabilities.maxTextureSize / Math.max(width, height));
-    renderer.setSize(Math.max(1, Math.floor(width * scale)), Math.max(1, Math.floor(height * scale)), false);
+    const size = pageBufferSize(width, height, { pixelRatio: ratio, resolution: settings.value.resolution,
+      maxTextureSize: renderer.capabilities.maxTextureSize });
+    renderer.setSize(size.width, size.height, false);
     staticTarget.setSize(canvas.width, canvas.height);
     backdropCache.resize(canvas.width, canvas.height);
     staticDirty = true;
