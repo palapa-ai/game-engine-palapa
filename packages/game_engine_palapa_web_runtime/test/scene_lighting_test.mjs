@@ -7,12 +7,16 @@ import { cloneTraceScene, traceStageFor } from '../runtime/hero/trace-scene.mjs'
 test('sun shadow projection encloses desktop and tall mobile page geometry', () => {
   const scene = new THREE.Scene();
   const sun = createSunlight(scene);
+  assert.equal(sun.lights.length, 3, 'a small light cluster softens distant cast shadows');
+  assert.equal(sun.lights.reduce((sum, light) => sum + light.intensity, 0), 0.8);
+  assert.ok(sun.lights.every(light => light.shadow.mapSize.width <= 1024));
   for (const [width, height] of [[1440, 3600], [390, 8200]]) {
     sun.resize(width, height);
     const camera = sun.light.shadow.camera;
     const direction = sun.light.position.clone().sub(sun.light.target.position);
     const shadowShift = Math.hypot(direction.x, direction.y) / direction.z;
     assert.ok(shadowShift < 0.3, 'letter shadows stay near their source on the wall');
+    assert.ok(new Set(sun.lights.map(source => source.position.x)).size > 1, 'sun samples arrive from a spread of angles');
     for (const x of [-width / 2, width / 2]) {
       for (const y of [-height, 0]) {
         for (const z of [-550, 400]) {

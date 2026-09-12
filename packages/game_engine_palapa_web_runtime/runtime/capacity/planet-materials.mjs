@@ -1,10 +1,10 @@
 import * as THREE from '../hero/vendor/three.module.min.js';
 
 export const planetNames = Object.freeze([
+  'realistic Earth',
   'black and white Earth',
   'Mercury',
   'Venus',
-  'realistic Earth',
   'historical Earth',
   'Mars',
   'Jupiter',

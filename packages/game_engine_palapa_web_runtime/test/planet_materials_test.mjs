@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPlanetMaterials, planetNames, planetPixels } from '../runtime/capacity/planet-materials.mjs';
 
-test('globe cycle begins with monochrome Earth and contains every planet plus the Moon', () => {
+test('globe cycle starts with Earth, then monochrome Earth, and keeps the historical Earth after Venus', () => {
   assert.deepEqual(planetNames, [
-    'black and white Earth', 'Mercury', 'Venus', 'realistic Earth', 'historical Earth',
+    'realistic Earth', 'black and white Earth', 'Mercury', 'Venus', 'historical Earth',
     'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Moon',
   ]);
 });

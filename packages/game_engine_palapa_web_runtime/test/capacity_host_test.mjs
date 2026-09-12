@@ -147,8 +147,8 @@ test('capacity traces the settled table and only rebuilds when its geometry chan
   });
 
   const meridian = root.getObjectByName('antique-globe-meridian');
-  assert.ok(anchor['aria-label'].includes('Globe: black and white Earth.'), 'the monochrome globe is the default');
-  for (const style of ['Mercury', 'Venus', 'realistic Earth', 'historical Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Moon', 'black and white Earth']) {
+  assert.ok(anchor['aria-label'].includes('Globe: realistic Earth.'), 'the realistic Earth is the default');
+  for (const style of ['black and white Earth', 'Mercury', 'Venus', 'historical Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Moon', 'realistic Earth']) {
     const before = geometryChanges;
     const wasVisible = meridian.visible;
     anchor.dispatchEvent(Object.assign(new Event('keydown'), { key: 'g' }));
